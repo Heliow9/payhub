@@ -3,6 +3,8 @@ import { loadDotEnv } from './config/load-dotenv.js';
 import { loadEnv } from './config/env.js';
 import { createMySqlPool } from './infra/db/mysql.js';
 import { MySqlAuditRepository } from './infra/repositories/mysql/mysql-audit.repository.js';
+import { MySqlConnectorRepository } from './infra/repositories/mysql/mysql-connector.repository.js';
+import { MySqlImportJobRepository } from './infra/repositories/mysql/mysql-import-job.repository.js';
 import { MySqlSessionRepository } from './infra/repositories/mysql/mysql-session.repository.js';
 import { MySqlUserRepository } from './infra/repositories/mysql/mysql-user.repository.js';
 
@@ -14,6 +16,8 @@ const app = createApp({
   users: new MySqlUserRepository(pool),
   sessions: new MySqlSessionRepository(pool),
   audit: new MySqlAuditRepository(pool),
+  connectors: new MySqlConnectorRepository(pool),
+  importJobs: new MySqlImportJobRepository(pool),
   config: {
     appOrigin: env.APP_ORIGIN,
     cookieSecure: env.COOKIE_SECURE,

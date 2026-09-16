@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { client, type DashboardSummary, type PayHubUser } from '../api/client';
 import { UsersPage } from './UsersPage';
+import { SageIntegrationPage } from './SageIntegrationPage';
 
-type Section = 'overview' | 'users';
+type Section = 'overview' | 'sage' | 'users';
 
 export function DashboardPage({ user, csrfToken, onLogout }: { user: PayHubUser; csrfToken: string; onLogout(): Promise<void> }) {
   const [section, setSection] = useState<Section>('overview');
@@ -18,6 +19,7 @@ export function DashboardPage({ user, csrfToken, onLogout }: { user: PayHubUser;
         <div className="sidebar-brand"><div className="brand-mark small">PH</div><strong>PayHub</strong></div>
         <nav>
           <button className={section === 'overview' ? 'active' : ''} onClick={() => setSection('overview')}>Visão geral</button>
+          <button className={section === 'sage' ? 'active' : ''} onClick={() => setSection('sage')}>Integração Sage</button>
           {user.role === 'MASTER' && <button className={section === 'users' ? 'active' : ''} onClick={() => setSection('users')}>Usuários</button>}
         </nav>
         <div className="sidebar-footer">
@@ -27,7 +29,7 @@ export function DashboardPage({ user, csrfToken, onLogout }: { user: PayHubUser;
       </aside>
 
       <main className="content">
-        {section === 'users' && user.role === 'MASTER' ? <UsersPage csrfToken={csrfToken} /> : (
+        {section === 'users' && user.role === 'MASTER' ? <UsersPage csrfToken={csrfToken} /> : section === 'sage' ? <SageIntegrationPage user={user} csrfToken={csrfToken} /> : (
           <section>
             <div className="page-heading">
               <span className="eyebrow">CORE PLATFORM</span>
@@ -41,7 +43,7 @@ export function DashboardPage({ user, csrfToken, onLogout }: { user: PayHubUser;
             <div className="module-grid">
               {(summary?.modules ?? [
                 { key: 'core', label: 'Core Platform', status: 'ACTIVE' as const },
-                { key: 'sage_connector', label: 'Conector Sage (.NET 8)', status: 'NEXT_STAGE' as const },
+                { key: 'sage_connector', label: 'Conector Sage (.NET 8)', status: 'ACTIVE' as const },
                 { key: 'payroll_import', label: 'Importação e normalização', status: 'PLANNED' as const },
                 { key: 'payslips', label: 'Holerites e assinaturas', status: 'PLANNED' as const },
               ]).map((module) => (

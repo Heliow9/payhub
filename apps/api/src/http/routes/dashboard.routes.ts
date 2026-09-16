@@ -8,10 +8,10 @@ export function createDashboardRouter(auth: AuthService) {
   router.get('/summary', requireAuth(auth), (req, res) => {
     res.json({
       user: publicUser(req.auth!.user),
-      platform: { name: 'PayHub', stage: 'Core Platform', status: 'ACTIVE' },
+      platform: { name: 'PayHub', stage: 'Sage Connector', status: 'ACTIVE' },
       modules: [
         { key: 'core', label: 'Core Platform', status: 'ACTIVE' },
-        { key: 'sage_connector', label: 'Conector Sage (.NET 8)', status: 'NEXT_STAGE' },
+        { key: 'sage_connector', label: 'Conector Sage (.NET 8)', status: 'ACTIVE' },
         { key: 'payroll_import', label: 'Importação e normalização', status: 'PLANNED' },
         { key: 'payslips', label: 'Holerites', status: 'PLANNED' },
         { key: 'signatures', label: 'Assinaturas', status: 'PLANNED' },

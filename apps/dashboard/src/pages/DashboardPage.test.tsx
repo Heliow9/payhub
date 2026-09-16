@@ -18,7 +18,9 @@ describe('DashboardPage', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     const { rerender } = render(<DashboardPage user={{ ...baseUser, role: 'MASTER' }} csrfToken="csrf" onLogout={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Usuários' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Integração Sage' })).toBeInTheDocument();
     rerender(<DashboardPage user={{ ...baseUser, role: 'ANALISTA' }} csrfToken="csrf" onLogout={vi.fn()} />);
     expect(screen.queryByRole('button', { name: 'Usuários' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Integração Sage' })).toBeInTheDocument();
   });
 });

@@ -1,24 +1,61 @@
 # PayHub
 
-PayHub é a plataforma para integração, distribuição e assinatura controlada de holerites. Este repositório contém a **Etapa 1 — Core Platform** aprovada.
+PayHub é a plataforma para integração, distribuição e assinatura controlada de holerites.
 
-## O que já existe nesta etapa
+O repositório contém:
 
-- monorepo npm;
-- API Node.js + TypeScript modular;
-- Dashboard React + Vite;
-- MySQL 5.6 (`pay_hub`);
+- **Etapa 1 — Core Platform**: autenticação, usuários, sessão segura, auditoria e infraestrutura;
+- **Etapa 2 — Conector Sage (.NET 8)**: conectores, heartbeat, fila de jobs e Windows Service somente leitura para o `Sage_Gestao_Contabil`.
+
+## Arquitetura atual
+
+```text
+SQL Server externo / rede do Sage
+┌────────────────────────────────────┐
+│ Sage_Gestao_Contabil               │
+│ PayHub Sage Connector (.NET 8)     │
+│ acesso SQL somente leitura         │
+└──────────────────┬─────────────────┘
+                   │ HTTPS de saída
+                   ▼
+AWS Lightsail
+┌────────────────────────────────────┐
+│ paayhubapi.duckdns.org             │
+│ Node.js + TypeScript + PM2         │
+│                                    │
+│ paayhub.duckdns.org                │
+│ React/Vite + Nginx                 │
+└──────────────────┬─────────────────┘
+                   │ MySQL
+                   ▼
+pay-hub.mysql.uhserver.com / pay_hub
+```
+
+O SQL Server do Sage **não fica no Lightsail e não é exposto na internet**.
+
+## Funcionalidades existentes
+
+### Core
+
 - perfis `MASTER` e `ANALISTA`;
-- bootstrap único do primeiro Master;
-- login/logout com sessão opaca persistida;
-- cookie de sessão HttpOnly;
-- CSRF vinculado à sessão;
-- rate limit de login;
+- login/logout com sessão opaca;
+- cookie HttpOnly e CSRF;
+- `scrypt` para senhas;
+- rate limit no login;
 - auditoria;
-- gestão de Analistas pelo Master;
-- estrutura PM2 + Nginx para Lightsail.
+- gestão de Analistas pelo Master.
 
-A integração com `Sage_Gestao_Contabil` **não pertence à Etapa 1**. Ela será feita na Etapa 2 por um **.NET 8 Windows Service no SERVIDORSQL, somente leitura**.
+### Integração Sage
+
+- cadastro de conector pelo Master;
+- token opaco de 256 bits, exibido apenas na criação;
+- somente hash SHA-256 do token persistido;
+- heartbeat do Windows Service;
+- fila de jobs;
+- progresso e logs;
+- snapshots brutos em JSON para a próxima etapa de normalização;
+- jobs `CONNECTION_TEST`, `SCHEMA_DISCOVERY` e `PAYROLL_IMPORT`;
+- acesso SQL Server somente leitura.
 
 ## Regra de negócio preservada para holerites
 
@@ -29,110 +66,43 @@ O funcionário não poderá assinar o holerite automaticamente. A assinatura som
 ```text
 PayHub/
 ├─ apps/
-│  ├─ api/           # API, migrations, domínio, repositórios e scripts
-│  └─ dashboard/     # React/Vite
-├─ deploy/nginx/     # exemplo de proxy/reverse proxy
-├─ docs/superpowers/ # especificação e plano técnico
+│  ├─ api/
+│  └─ dashboard/
+├─ connector/
+│  └─ PayHub.SageConnector/
+├─ deploy/nginx/
+├─ docs/superpowers/
 ├─ ecosystem.config.cjs
 └─ .env.example
 ```
 
-## Pré-requisitos
+## Requisitos do servidor web
 
 - Node.js 22+
 - npm 10+
 - MySQL 5.6+
+- PM2
+- Nginx
 
-## 1. Instalação
-
-Na raiz:
+## Instalação / atualização da API e Dashboard
 
 ```bash
 npm install
-```
-
-## 2. Configuração
-
-Copie `.env.example` para `.env` e ajuste os valores.
-
-```bash
-cp .env.example .env
-```
-
-Nunca versione `.env`.
-
-Para produção atrás de HTTPS, use:
-
-```env
-NODE_ENV=production
-COOKIE_SECURE=true
-APP_ORIGIN=https://seu-dominio
-```
-
-## 3. Criar/migrar o banco
-
-O usuário MySQL configurado precisa ter permissão para criar o banco na primeira execução. Se o DBA já tiver criado `pay_hub`, basta conceder acesso às tabelas.
-
-```bash
-npm run db:migrate
-```
-
-A migration `001_core.sql` é compatível com MySQL 5.6 e cria `users`, `sessions` e `audit_logs`.
-
-## 4. Criar o primeiro Master
-
-Preencha no `.env`:
-
-```env
-MASTER_NAME=Administrador PayHub
-MASTER_EMAIL=admin@suaempresa.com.br
-MASTER_PASSWORD=uma-senha-forte-com-12-ou-mais-caracteres
-```
-
-Depois:
-
-```bash
-npm run bootstrap:master
-```
-
-O comando é bloqueado se já existir um `MASTER`.
-
-## 5. Desenvolvimento
-
-API:
-
-```bash
-npm run dev --workspace @payhub/api
-```
-
-Dashboard:
-
-```bash
-npm run dev --workspace @payhub/dashboard
-```
-
-O Vite encaminha `/api` para `http://localhost:3000` durante o desenvolvimento.
-
-## 6. Testes e build
-
-```bash
 npm test
 npm run build
-```
-
-## 7. Produção com PM2
-
-Após instalar dependências, migrar o banco e criar o Master:
-
-```bash
-npm run build
-pm2 start ecosystem.config.cjs
+npm run db:migrate
+pm2 restart payhub-api --update-env
 pm2 save
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
-O dashboard gerado fica em `apps/dashboard/dist`. O exemplo `deploy/nginx/payhub.conf.example` serve os arquivos estáticos e encaminha `/api/` para a API na porta 3000.
+A migration é idempotente e aplica:
 
-## Endpoints da Etapa 1
+- `001_core.sql` — `users`, `sessions`, `audit_logs`;
+- `002_sage_connector.sql` — `connectors`, `import_jobs`, `connector_job_logs`, `connector_raw_batches`.
+
+## Endpoints administrativos
 
 | Método | Endpoint | Acesso |
 |---|---|---|
@@ -140,10 +110,44 @@ O dashboard gerado fica em `apps/dashboard/dist`. O exemplo `deploy/nginx/payhub
 | POST | `/api/auth/login` | Público + rate limit |
 | GET | `/api/auth/me` | Autenticado |
 | POST | `/api/auth/logout` | Autenticado + CSRF |
-| GET | `/api/dashboard/summary` | Autenticado |
 | GET | `/api/users` | Master |
 | POST | `/api/users` | Master + CSRF |
+| GET | `/api/connectors` | Master/Analista |
+| POST | `/api/connectors` | Master + CSRF |
+| GET | `/api/import-jobs` | Master/Analista |
+| POST | `/api/import-jobs` | Master/Analista + CSRF |
+| GET | `/api/import-jobs/:id/logs` | Master/Analista |
 
-## Segurança
+## Endpoints do Windows Service
 
-O token de sessão gerado no login possui 256 bits e somente o hash SHA-256 é persistido. As senhas usam `scrypt` com salt aleatório. O token CSRF também é vinculado à sessão por hash e precisa ser enviado no header `X-CSRF-Token` nas operações autenticadas mutáveis.
+Todos exigem `X-PayHub-Connector-Id` e `Authorization: Bearer <token>`.
+
+| Método | Endpoint |
+|---|---|
+| POST | `/api/connector-agent/heartbeat` |
+| POST | `/api/connector-agent/jobs/next` |
+| POST | `/api/connector-agent/jobs/:id/progress` |
+| POST | `/api/connector-agent/jobs/:id/logs` |
+| POST | `/api/connector-agent/jobs/:id/batches` |
+| POST | `/api/connector-agent/jobs/:id/complete` |
+| POST | `/api/connector-agent/jobs/:id/fail` |
+
+## Windows Service .NET 8
+
+A documentação completa está em `connector/README.md`.
+
+O executável deve ser instalado no servidor Windows que possui acesso ao Sage. A conta SQL deve ter apenas permissão de leitura (`db_datareader` ou privilégios equivalentes restritos às tabelas necessárias).
+
+## Fontes Sage priorizadas
+
+`Funcionario`, `FunDocumento`, `FunFuncional`, `FunSalario`, `ProcEvento`, `EventoGVigencia`, `ProcBase`, `MovCapa`, `MovEvento`.
+
+Tipos já mapeados para a próxima etapa:
+
+- `2`: mensal;
+- `3`: adiantamento 13º;
+- `4`: 13º;
+- `6`: rescisão;
+- `2` + evento `180` (`LIQUIDO RESCISAO`): rescisão.
+
+A normalização dos snapshots em funcionários/holerites, geração do PDF e fluxo de assinatura pertencem às próximas etapas.

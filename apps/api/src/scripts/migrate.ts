@@ -22,8 +22,7 @@ await admin.query(
 );
 await admin.end();
 
-const migrationPath = resolve(process.cwd(), 'src/infra/db/migrations/001_core.sql');
-const sql = await readFile(migrationPath, 'utf8');
+const migrations = ['001_core.sql', '002_sage_connector.sql'];
 const connection = await mysql.createConnection({
   host: env.MYSQL_HOST,
   port: env.MYSQL_PORT,
@@ -32,6 +31,10 @@ const connection = await mysql.createConnection({
   database: env.MYSQL_DATABASE,
   multipleStatements: true,
 });
-await connection.query(sql);
+for (const migration of migrations) {
+  const migrationPath = resolve(process.cwd(), `src/infra/db/migrations/${migration}`);
+  const sql = await readFile(migrationPath, 'utf8');
+  await connection.query(sql);
+  console.log(`Migration ${migration} aplicada em ${env.MYSQL_DATABASE}.`);
+}
 await connection.end();
-console.log(`Migration 001_core aplicada em ${env.MYSQL_DATABASE}.`);

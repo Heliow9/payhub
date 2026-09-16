@@ -8,3 +8,8 @@ coverage/
 .DS_Store
 .vscode/
 .idea/
+connector/**/appsettings.json
+connector/**/appsettings.*.json
+!connector/**/appsettings.example.json
+connector/**/bin/
+connector/**/obj/
