@@ -1,0 +1,14 @@
+{
+  "name": "payhub",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspace @payhub/api & npm run dev --workspace @payhub/dashboard",
+    "db:migrate": "npm run db:migrate --workspace @payhub/api",
+    "bootstrap:master": "npm run bootstrap:master --workspace @payhub/api"
+  },
+  "engines": {"node": ">=22"}
+}
