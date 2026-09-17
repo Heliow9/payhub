@@ -1,6 +1,10 @@
-function pdfEscape(value:string):string{return value.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,' ');}
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+function pdfEscape(value:string):string{return value.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,' ');} 
 function latin(value:string):string{return value.normalize('NFC').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/–|—/g,'-').replace(/[^\u0009\u000A\u000D\u0020-\u00FF]/g,'?');}
-function numberBr(value:number|null|undefined):string{return value==null?'—':new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(value);}
+function numberBr(value:number|null|undefined):string{return value==null?'—':new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(value);} 
 function eventCode(code:string):string{const raw=String(code??'').trim();return /^\d+$/.test(raw)&&raw.length<5?raw.padStart(5,'0'):raw;}
 function monthLabel(competence:string):string{const match=/^(\d{1,2})\/(\d{4})$/.exec(competence);if(!match)return competence;const names=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];return `${names[Math.max(0,Math.min(11,Number(match[1])-1))]}/${match[2]}`;}
 function fmtDate(value:string|null|undefined):string{if(!value)return'—';const match=/^(\d{4})-(\d{2})-(\d{2})/.exec(value);return match?`${match[3]}/${match[2]}/${match[1]}`:value;}
@@ -30,19 +34,44 @@ export interface PdfPayrollInput{
   irrfBase?:number|null;
   irrfBracket?:number|null;
   items:Array<{code:string;description:string;reference?:string|null;amount:number;nature:string}>;
+  footer?:string[];
   signatureInfo?:{signedAt:string;acceptanceText:string};
 }
 
+export interface EvidenceReceiptPdfInput{
+  employeeName:string;
+  cpfMasked:string;
+  competence:string;
+  typeLabel:string;
+  signedAt:string;
+  authMethod:string;
+  origin:string;
+  ipAddress:string;
+  device:string;
+  system:string;
+  browser:string;
+  location:string;
+  approximateAddress:string;
+  originalHash:string;
+  signedHash:string;
+  evidenceHash:string;
+  hmacSeal:string;
+  tsaStatus:string;
+}
+
 type PdfObject=Buffer;
+interface PdfImageResource{name:string;data:Buffer;width:number;height:number;}
+interface PdfPageDefinition{commands:string[];images?:PdfImageResource[];}
 function text(x:number,y:number,value:string,size=7,bold=false):string{return `BT /${bold?'F2':'F1'} ${size} Tf 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(latin(value))}) Tj ET`;}
-function textRight(x:number,y:number,value:string,size=7,bold=false):string{const width=latin(value).length*size*.49;return text(x-width,y,value,size,bold);}
-function textCenter(x:number,y:number,w:number,value:string,size=7,bold=false):string{const width=latin(value).length*size*.49;return text(x+(w-width)/2,y,value,size,bold);}
+function textRight(x:number,y:number,value:string,size=7,bold=false):string{const width=latin(value).length*size*.49;return text(x-width,y,value,size,bold);} 
+function textCenter(x:number,y:number,w:number,value:string,size=7,bold=false):string{const width=latin(value).length*size*.49;return text(x+(w-width)/2,y,value,size,bold);} 
 function rotatedText(x:number,y:number,value:string,size=6,bold=false):string{return `BT /${bold?'F2':'F1'} ${size} Tf 0 1 -1 0 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(latin(value))}) Tj ET`;}
 function rotatedFitText(x:number,y:number,maxLength:number,value:string,size=4,bold=false):string{const safe=latin(value);const natural=Math.max(1,safe.length*size*.49);const scale=Math.max(28,Math.min(100,(maxLength/natural)*100));return `BT /${bold?'F2':'F1'} ${size} Tf ${scale.toFixed(2)} Tz 0 1 -1 0 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(safe)}) Tj ET`;}
-
 function line(x1:number,y1:number,x2:number,y2:number,width=.45):string{return `${width} w ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`;}
 function rect(x:number,y:number,w:number,h:number,width=.55):string{return `${width} w ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re S`;}
+function fillRect(x:number,y:number,w:number,h:number,gray=.96):string{return `q ${gray.toFixed(2)} g ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f Q`;}
 function fit(value:string,max:number):string{const s=latin(value.trim());return s.length<=max?s:s.slice(0,Math.max(1,max-1))+'…';}
+function drawImage(name:string,x:number,y:number,w:number,h:number):string{return `q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /${name} Do Q`;}
 
 function drawReceipt(input:PdfPayrollInput,y0:number):string[]{
   const c:string[]=[];const x0=14;const right=581;const signatureLeft=531;const mainRight=signatureLeft;const h=370;const top=y0+h;
@@ -69,6 +98,7 @@ function drawReceipt(input:PdfPayrollInput,y0:number):string[]{
   c.push(line(x0,tableHeadBottom,mainRight,tableHeadBottom));
   const items=input.items.slice(0,12);const available=Math.max(72,tableHeadBottom-bodyBottom-8);const rowStep=Math.min(13.5,Math.max(8.6,available/Math.max(items.length,1)));const rowFont=rowStep<10?5.6:6.6;let y=tableHeadBottom-rowStep;
   for(const item of items){c.push(text(x0+4,y,eventCode(item.code),rowFont),text(xCode+4,y,fit(item.description,rowStep<10?49:45),rowFont),textCenter(xDesc,y,xRef-xDesc,item.reference??'—',rowFont),textRight(xVenc-7,y,amount(item,'EARNING'),rowFont+.2),textRight(mainRight-7,y,amount(item,'DEDUCTION'),rowFont+.2));y-=rowStep;}
+  if(!input.signatureInfo&&input.footer?.length){const note=fit(input.footer.join(' | '),135);c.push(text(xCode+4,bodyBottom+4,note,4.6));}
   c.push(line(x0,totalsTop,mainRight,totalsTop));c.push(line(xDesc,totalsTop,xDesc,basesTop));c.push(line(xVenc,totalsTop,xVenc,basesTop));
   c.push(textCenter(xDesc,totalsTop-11,xVenc-xDesc,'Total de Vencimentos',5.3),textCenter(xVenc,totalsTop-11,mainRight-xVenc,'Total de Descontos',5.3));
   c.push(textRight(xVenc-8,totalsTop-26,numberBr(input.gross),8),textRight(mainRight-8,totalsTop-26,numberBr(input.deductions),8));
@@ -89,15 +119,108 @@ function drawReceipt(input:PdfPayrollInput,y0:number):string[]{
   return c;
 }
 
-function buildPdfFromPageCommands(pages:string[][]):Buffer{
-  const objects:PdfObject[]=[];const add=(content:string|Buffer)=>{objects.push(Buffer.isBuffer(content)?content:Buffer.from(content,'latin1'));return objects.length;};
-  const catalogId=add('');const pagesId=add('');const fontId=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');const boldId=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');const pageIds:number[]=[];
-  for(const commands of pages){const stream=Buffer.from(commands.join('\n'),'latin1');const streamId=add(Buffer.concat([Buffer.from(`<< /Length ${stream.length} >>\nstream\n`,'latin1'),stream,Buffer.from('\nendstream','latin1')]));const pageId=add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldId} 0 R >> >> /Contents ${streamId} 0 R >>`);pageIds.push(pageId);}
-  objects[catalogId-1]=Buffer.from(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`,'latin1');objects[pagesId-1]=Buffer.from(`<< /Type /Pages /Kids [${pageIds.map((id)=>`${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`,'latin1');
-  const chunks:Buffer[]=[Buffer.from('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n','latin1')];const offsets:number[]=[0];let offset=chunks[0]!.length;objects.forEach((obj,index)=>{offsets.push(offset);const head=Buffer.from(`${index+1} 0 obj\n`,'latin1');const tail=Buffer.from('\nendobj\n','latin1');chunks.push(head,obj,tail);offset+=head.length+obj.length+tail.length;});const xrefOffset=offset;let xref=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;for(let i=1;i<offsets.length;i++)xref+=`${String(offsets[i]).padStart(10,'0')} 00000 n \n`;xref+=`trailer\n<< /Size ${objects.length+1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;chunks.push(Buffer.from(xref,'latin1'));return Buffer.concat(chunks);
+function wrap(textValue:string,max=92):string[]{const words=latin(textValue).split(/\s+/);const lines:string[]=[];let current='';for(const word of words){if(!word)continue;const next=current?`${current} ${word}`:word;if(next.length>max&&current){lines.push(current);current=word;}else current=next;}if(current)lines.push(current);return lines.length?lines:[''];}
+function wrapFixed(textValue:string,max=85):string[]{const safe=latin(textValue);if(safe.length<=max)return[safe];const lines:string[]=[];for(let i=0;i<safe.length;i+=max)lines.push(safe.slice(i,i+max));return lines;}
+
+function jpegDimensions(data:Buffer):{width:number;height:number}{
+  if(data.length<4||data[0]!==0xFF||data[1]!==0xD8)throw new Error('JPEG inválido.');
+  let offset=2;
+  while(offset<data.length){
+    while(offset<data.length&&data[offset]!==0xFF)offset++;
+    if(offset+1>=data.length)break;
+    const marker=data[offset+1];
+    offset+=2;
+    if(marker===0xD9||marker===0xDA)break;
+    if(offset+2>data.length)break;
+    const length=data.readUInt16BE(offset);
+    if(length<2||offset+length>data.length)break;
+    if((marker>=0xC0&&marker<=0xC3)||(marker>=0xC5&&marker<=0xC7)||(marker>=0xC9&&marker<=0xCB)||(marker>=0xCD&&marker<=0xCF)){
+      const height=data.readUInt16BE(offset+3);const width=data.readUInt16BE(offset+5);return{width,height};
+    }
+    offset+=length;
+  }
+  throw new Error('Não foi possível ler as dimensões do JPEG.');
 }
 
-export function buildPayrollPdf(input:PdfPayrollInput):Buffer{return buildPdfFromPageCommands([[...drawReceipt(input,445),...drawReceipt(input,25)]]);}
+const __dirname=dirname(fileURLToPath(import.meta.url));
+function loadEvidenceLogo():PdfImageResource|null{
+  const candidate=resolve(__dirname,'../../../dashboard/public/assets/payhub-evidence-logo.jpg');
+  if(!existsSync(candidate))return null;
+  try{const data=readFileSync(candidate);const {width,height}=jpegDimensions(data);return{name:'LogoPH',data,width,height};}catch{return null;}
+}
+const evidenceLogo=loadEvidenceLogo();
 
-function wrap(text:string,max=92):string[]{const words=text.split(/\s+/);const lines:string[]=[];let current='';for(const word of words){if(!word)continue;const next=current?`${current} ${word}`:word;if(next.length>max&&current){lines.push(current);current=word;}else current=next;}if(current)lines.push(current);return lines;}
-export function buildTextPdf(allLines:string[]):Buffer{const pages:string[][]=[];for(let i=0;i<allLines.length;i+=48)pages.push(allLines.slice(i,i+48));if(pages.length===0)pages.push(['']);return buildPdfFromPageCommands(pages.map((pageLines)=>{const commands=['BT','/F1 10 Tf','46 795 Td'];pageLines.forEach((raw,index)=>{const lineValue=latin(raw);if(index>0)commands.push('0 -15 Td');commands.push(`(${pdfEscape(lineValue)}) Tj`);});commands.push('ET');return commands;}));}
+function buildPdfFromPageDefinitions(pages:PdfPageDefinition[]):Buffer{
+  const objects:PdfObject[]=[];const add=(content:string|Buffer)=>{objects.push(Buffer.isBuffer(content)?content:Buffer.from(content,'latin1'));return objects.length;};
+  const catalogId=add('');
+  const pagesId=add('');
+  const fontId=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  const boldId=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  const imageIds=new Map<string,number>();
+  const imageResources=new Map<string,PdfImageResource>();
+  for(const page of pages){for(const image of page.images??[]){if(!imageIds.has(image.name)){imageResources.set(image.name,image);const stream=Buffer.concat([Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.data.length} >>\nstream\n`,'latin1'),image.data,Buffer.from('\nendstream','latin1')]);imageIds.set(image.name,add(stream));}}}
+  const pageIds:number[]=[];
+  for(const page of pages){const stream=Buffer.from(page.commands.join('\n'),'latin1');const streamId=add(Buffer.concat([Buffer.from(`<< /Length ${stream.length} >>\nstream\n`,'latin1'),stream,Buffer.from('\nendstream','latin1')]));const usedImages=(page.images??[]).filter((image,index,self)=>self.findIndex((item)=>item.name===image.name)===index);const xObjects=usedImages.length?` /XObject << ${usedImages.map((image)=>`/${image.name} ${imageIds.get(image.name)} 0 R`).join(' ')} >>`:'';const pageId=add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldId} 0 R >>${xObjects} >> /Contents ${streamId} 0 R >>`);pageIds.push(pageId);} 
+  objects[catalogId-1]=Buffer.from(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`,'latin1');
+  objects[pagesId-1]=Buffer.from(`<< /Type /Pages /Kids [${pageIds.map((id)=>`${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`,'latin1');
+  const chunks:Buffer[]=[Buffer.from('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n','latin1')];const offsets:number[]=[0];let offset=chunks[0]!.length;
+  objects.forEach((obj,index)=>{offsets.push(offset);const head=Buffer.from(`${index+1} 0 obj\n`,'latin1');const tail=Buffer.from('\nendobj\n','latin1');chunks.push(head,obj,tail);offset+=head.length+obj.length+tail.length;});
+  const xrefOffset=offset;let xref=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;for(let i=1;i<offsets.length;i++)xref+=`${String(offsets[i]).padStart(10,'0')} 00000 n \n`;xref+=`trailer\n<< /Size ${objects.length+1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;chunks.push(Buffer.from(xref,'latin1'));return Buffer.concat(chunks);
+}
+
+function field(commands:string[],label:string,value:string,y:number,options?:{x?:number;maxChars?:number;valueSize?:number;labelSize?:number;lineGap?:number;minGap?:number}){
+  const x=options?.x??48;const labelSize=options?.labelSize??7.2;const valueSize=options?.valueSize??9;const lines=wrap(value,options?.maxChars??82);commands.push(text(x,y,label.toUpperCase(),labelSize,true));let cursor=y-13;for(const lineValue of lines){commands.push(text(x,cursor,lineValue,valueSize,false));cursor-=(options?.lineGap??11.5);}return cursor-(options?.minGap??6);
+}
+
+function hashField(commands:string[],label:string,value:string,y:number){const x=48;commands.push(text(x,y,label.toUpperCase(),7.2,true));let cursor=y-13;for(const lineValue of wrapFixed(value,76)){commands.push(text(x,cursor,lineValue,7.1,false));cursor-=10.5;}return cursor-4;}
+
+export function buildPayrollPdf(input:PdfPayrollInput):Buffer{return buildPdfFromPageDefinitions([{commands:[...drawReceipt(input,445),...drawReceipt(input,25)]}]);}
+export function buildTextPdf(allLines:string[]):Buffer{const pages:string[][]=[];for(let i=0;i<allLines.length;i+=48)pages.push(allLines.slice(i,i+48));if(pages.length===0)pages.push(['']);return buildPdfFromPageDefinitions(pages.map((pageLines)=>{const commands=['BT','/F1 10 Tf','46 795 Td'];pageLines.forEach((raw,index)=>{const lineValue=latin(raw);if(index>0)commands.push('0 -15 Td');commands.push(`(${pdfEscape(lineValue)}) Tj`);});commands.push('ET');return{commands};}));}
+
+export function buildEvidenceReceiptPdf(input:EvidenceReceiptPdfInput):Buffer{
+  const commands:string[]=[];const images:PdfImageResource[]=[];const margin=38;const contentWidth=595-(margin*2);
+  commands.push(rect(26,22,543,798,0.8));
+  commands.push(fillRect(26,758,543,62,0.93));
+  if(evidenceLogo){images.push(evidenceLogo);commands.push(drawImage(evidenceLogo.name,40,766,58,50));}
+  commands.push(text(110,796,'PayHub',18,true));
+  commands.push(text(110,780,'Comprovante de Assinatura Eletrônica',12,true));
+  commands.push(text(110,766,'Relatório de evidências da assinatura do holerite',8.2,false));
+  commands.push(line(38,752,557,752,0.9));
+  commands.push(text(430,796,'Documento de evidências',10,true));
+  commands.push(text(430,782,'Gerado automaticamente pelo PayHub',7.5,false));
+
+  let y=734;
+  commands.push(fillRect(38,y-8,519,16,0.94));commands.push(text(48,y-3,'1. Identificação da assinatura',9.6,true));y-=24;
+  y=field(commands,'Funcionário',input.employeeName,y,{valueSize:11,maxChars:72});
+  y=field(commands,'CPF',input.cpfMasked,y,{valueSize:9.5,maxChars:40});
+  y=field(commands,'Competência',input.competence,y,{x:48,valueSize:9.5,maxChars:30});
+  y=field(commands,'Tipo de folha',input.typeLabel,y,{valueSize:9.5,maxChars:40});
+  y=field(commands,'Assinado em',input.signedAt,y,{valueSize:9.5,maxChars:60});
+  y=field(commands,'Método de autenticação',input.authMethod,y,{valueSize:9.5,maxChars:60});
+  y=field(commands,'Origem da assinatura',input.origin,y,{valueSize:9.5,maxChars:60});
+
+  y-=4;
+  commands.push(fillRect(38,y-8,519,16,0.94));commands.push(text(48,y-3,'2. Evidências do dispositivo e da sessão',9.6,true));y-=24;
+  y=field(commands,'IP registrado',input.ipAddress,y,{valueSize:9.2,maxChars:52});
+  y=field(commands,'Dispositivo',input.device,y,{valueSize:9.2,maxChars:78});
+  y=field(commands,'Sistema operacional',input.system,y,{valueSize:9.2,maxChars:78});
+  y=field(commands,'Navegador / App',input.browser,y,{valueSize:9.2,maxChars:78});
+  y=field(commands,'Localização',input.location,y,{valueSize:8.8,maxChars:84});
+  y=field(commands,'Endereço aproximado',input.approximateAddress,y,{valueSize:8.8,maxChars:84});
+
+  y-=4;
+  commands.push(fillRect(38,y-8,519,16,0.94));commands.push(text(48,y-3,'3. Integridade e trilha criptográfica',9.6,true));y-=24;
+  y=hashField(commands,'Hash original do PDF',input.originalHash,y);
+  y=hashField(commands,'Hash do PDF assinado',input.signedHash,y);
+  y=hashField(commands,'Hash da evidência',input.evidenceHash,y);
+  y=hashField(commands,'Selo HMAC da evidência',input.hmacSeal,y);
+  y=field(commands,'Carimbo de tempo externo',input.tsaStatus,y,{valueSize:9.2,maxChars:80});
+
+  const footerY=Math.max(52,y-4);
+  commands.push(line(38,footerY+16,557,footerY+16,0.8));
+  const footerLines=wrap('Este comprovante reúne as evidências eletrônicas da assinatura do holerite, incluindo dados da sessão, do dispositivo e dos registros de integridade criptográfica gerados pelo PayHub.',104);
+  let fy=footerY+4;
+  for(const lineValue of footerLines){commands.push(text(48,fy,lineValue,7.2,false));fy-=9.6;}
+
+  return buildPdfFromPageDefinitions([{commands,images}]);
+}

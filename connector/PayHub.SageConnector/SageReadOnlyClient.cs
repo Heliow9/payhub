@@ -33,8 +33,9 @@ public sealed class SageReadOnlyClient
     private static readonly string[] NameAliases = ["nm_funcionario", "nome_funcionario", "nome", "nm_pessoa", "nome_pessoa"];
     private static readonly string[] BirthAliases = ["dt_nascimento", "data_nascimento", "dtnascimento", "nascimento"];
     private static readonly string[] AdmissionAliases = ["dt_admissao", "data_admissao", "dtadmissao", "admissao"];
-    private static readonly string[] FunctionDescriptionAliases = ["ds_funcao", "descricao_funcao", "nm_funcao", "nome_funcao", "ds_cargo", "descricao_cargo", "nm_cargo", "nome_cargo"];
-    private static readonly string[] FunctionCodeAliases = ["cd_funcao", "codigo_funcao", "cod_funcao", "id_funcao", "funcao", "cd_cargo", "codigo_cargo", "cod_cargo"];
+    private static readonly string[] FunctionDescriptionAliases = ["ds_funcao", "descricao_funcao", "nm_funcao", "nome_funcao", "ds_nome_funcao", "nm_nome_funcao", "funcao_descricao", "denominacao_funcao", "ds_cargo", "descricao_cargo", "nm_cargo", "nome_cargo", "ds_nome_cargo", "nm_nome_cargo", "cargo_descricao", "denominacao_cargo"];
+    private static readonly string[] FunctionReferenceDescriptionAliases = ["ds_funcao", "descricao_funcao", "nm_funcao", "nome_funcao", "ds_nome_funcao", "nm_nome_funcao", "funcao_descricao", "denominacao_funcao", "ds_cargo", "descricao_cargo", "nm_cargo", "nome_cargo", "ds_nome_cargo", "nm_nome_cargo", "cargo_descricao", "denominacao_cargo", "descricao", "ds_descricao", "nm_descricao", "nome", "denominacao", "titulo"];
+    private static readonly string[] FunctionCodeAliases = ["cd_funcao", "codigo_funcao", "cod_funcao", "id_funcao", "nr_funcao", "funcao", "cd_cargo", "codigo_cargo", "cod_cargo", "id_cargo", "nr_cargo", "cargo"];
     private static readonly string[] CboAliases = ["cbo", "cd_cbo", "nr_cbo", "codigo_cbo", "cbo_funcao", "cd_cbo_funcao"];
     private static readonly string[] PhoneAliases = ["telefone", "nr_telefone", "fone", "celular", "nr_celular"];
     private static readonly string[] StatusAliases = ["situacao", "status", "st_funcionario", "ds_situacao", "fl_ativo"];
@@ -166,8 +167,11 @@ public sealed class SageReadOnlyClient
         foreach (var row in lifecycleRows) MergeOverwriteEmpty(collected, row);
 
         var jobTitle = First(latestFunctional ?? new(StringComparer.OrdinalIgnoreCase), FunctionDescriptionAliases)
-            ?? First(functionReference ?? new(StringComparer.OrdinalIgnoreCase), FunctionDescriptionAliases)
-            ?? First(collected, FunctionDescriptionAliases);
+            ?? First(functionReference ?? new(StringComparer.OrdinalIgnoreCase), FunctionReferenceDescriptionAliases)
+            ?? First(collected, FunctionDescriptionAliases)
+            ?? InferFunctionDescription(latestFunctional)
+            ?? InferFunctionDescription(functionReference)
+            ?? InferFunctionDescription(collected);
         var cbo = First(functionReference ?? new(StringComparer.OrdinalIgnoreCase), CboAliases)
             ?? First(latestFunctional ?? new(StringComparer.OrdinalIgnoreCase), CboAliases)
             ?? First(collected, CboAliases);
@@ -366,7 +370,7 @@ public sealed class SageReadOnlyClient
         {
             var columns = await GetColumnsAsync(connection, table, cancellationToken);
             var codeColumn = FindColumn(columns, FunctionCodeAliases);
-            var descriptionColumn = FindColumn(columns, FunctionDescriptionAliases);
+            var descriptionColumn = FindColumn(columns, FunctionReferenceDescriptionAliases);
             if (codeColumn is null || descriptionColumn is null) continue;
             await using var cmd = connection.CreateCommand();cmd.CommandTimeout = _options.CommandTimeoutSeconds;
             cmd.Parameters.Add(new SqlParameter("@functionCode", SqlDbType.NVarChar, 100){Value=functionCode});
@@ -496,6 +500,21 @@ public sealed class SageReadOnlyClient
     {foreach(var row in rows){var value=First(row,aliases);if(!string.IsNullOrWhiteSpace(value))return value;}return null;}
     private static object? FirstValueFromRows(IEnumerable<Dictionary<string,object?>> rows,IEnumerable<string> aliases)
     {foreach(var row in rows){var value=FirstValue(row,aliases);if(value is not null)return value;}return null;}
+
+    private static string? InferFunctionDescription(Dictionary<string, object?>? row)
+    {
+        if (row is null) return null;
+        foreach (var pair in row)
+        {
+            var key = NormalizeName(pair.Key);
+            if (!key.Contains("funcao") && !key.Contains("cargo")) continue;
+            if (key.Contains("codigo") || key.StartsWith("cd_") || key.Contains("_cd_") || key.Contains("cbo") || key.Contains("data") || key.StartsWith("dt_") || key.Contains("historico") || key.StartsWith("id_") || key.EndsWith("_id")) continue;
+            var value = Convert.ToString(pair.Value)?.Trim();
+            if (string.IsNullOrWhiteSpace(value) || value.Length > 190 || value.All(c => char.IsDigit(c) || char.IsWhiteSpace(c) || c is '.' or ',' or '-' or '+')) continue;
+            if (value.Any(char.IsLetter)) return value;
+        }
+        return null;
+    }
 
     private static string? FindColumn(IEnumerable<string> columns, IEnumerable<string> aliases)
     {

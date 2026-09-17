@@ -1,13 +1,14 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { badRequest, conflict, notFound } from '../core/errors.js';
-import { isValidCpf, normalizeCpf } from '../core/security.js';
+import { isValidCpf, maskCpf, normalizeCpf } from '../core/security.js';
 import { parseJson } from '../core/json.js';
 import type { RequestMeta } from '../core/types.js';
 import { AuditService } from './audit.service.js';
 import { ConnectorService } from './connector.service.js';
 import { StorageService } from './storage.service.js';
 import { employeeDeletionBlockReason } from './employee-delete-policy.js';
-import { normalizeEmployeePhone, sageEmployeePatch } from './employee-data.js';
+import { inferSageJobTitle, normalizeEmployeePhone, sageEmployeePatch } from './employee-data.js';
+import { buildPayrollPdf } from './pdf.service.js';
 
 export interface EmployeeLookupResult {
   sageEmployeeCode: string;
@@ -24,6 +25,13 @@ export interface EmployeeLookupResult {
   noticeStartDate?: string | null;
   noticeDays?: number | null;
   raw?: Record<string, unknown>;
+}
+
+const cboAliases=['cbo_atual','cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
+function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
+  const snapshot=parseJson<Record<string,unknown>>(raw,{});const entries=new Map(Object.entries(snapshot).map(([key,value])=>[key.toLowerCase(),value]));
+  for(const alias of aliases){const value=entries.get(alias.toLowerCase());if(value!==undefined&&value!==null&&String(value).trim()!=='')return String(value).trim();}
+  return null;
 }
 
 export class EmployeeService {
@@ -56,7 +64,8 @@ export class EmployeeService {
     const rows=await this.connector.rawRows(jobId,'EmployeeLookup');
     const first=rows.find((r)=>r && typeof r==='object') as EmployeeLookupResult|undefined;
     if(!first?.sageEmployeeCode) return {status:'NOT_FOUND',employee:null,message:'Funcionário não encontrado no Sage.'};
-    return {status:'FOUND',employee:{...first,cpf:normalizeCpf(first.cpf)}};
+    const jobTitle=(first.jobTitle&&String(first.jobTitle).trim())||inferSageJobTitle(first.raw)||null;
+    return {status:'FOUND',employee:{...first,cpf:normalizeCpf(first.cpf),jobTitle}};
   }
 
   async createFromLookup(actorId:number,jobId:number,groupId:number,phoneInput:string|undefined,meta:RequestMeta):Promise<number>{
@@ -95,7 +104,22 @@ export class EmployeeService {
     if(!/^\d{4}-\d{2}-\d{2}$/.test(e.birthDate))throw badRequest('O Sage não retornou uma data de nascimento válida. Sincronização bloqueada.');
     const patch=sageEmployeePatch(e);
     await this.pool.execute(`UPDATE employees SET name=?,birth_date=?,admission_date=?,job_title=?,sage_status=?,sage_snapshot_json=?,updated_at=UTC_TIMESTAMP() WHERE id=?`,[patch.name,patch.birthDate,patch.admissionDate,patch.jobTitle,patch.sageStatus,patch.snapshotJson,employeeId]);
-    await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_SAGE_SYNC_APPLIED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,jobTitle:patch.jobTitle,sageStatus:patch.sageStatus}});
+    const refreshedPayrolls=await this.refreshUnsignedPayrollDocuments(employeeId);
+    await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_SAGE_SYNC_APPLIED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,jobTitle:patch.jobTitle,sageStatus:patch.sageStatus,refreshedUnsignedPayrolls:refreshedPayrolls}});
+  }
+
+  private async refreshUnsignedPayrollDocuments(employeeId:number):Promise<number>{
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label typeLabel,p.gross_amount gross,p.deduction_amount deductions,p.net_amount net,p.raw_reference_json rawReferenceJson,d.original_path originalPath,e.name,e.cpf,e.sage_employee_code sageCode,e.job_title jobTitle,DATE_FORMAT(e.admission_date,'%Y-%m-%d') admissionDate,e.sage_snapshot_json sageSnapshotJson FROM payrolls p JOIN payroll_documents d ON d.payroll_id=p.id JOIN employees e ON e.id=p.employee_id WHERE p.employee_id=? AND p.is_current=1 AND p.status<>'SIGNED'`,[employeeId]);
+    let refreshed=0;
+    for(const row of rows){
+      const [itemRows]=await this.pool.execute<RowDataPacket[]>(`SELECT event_code code,description,reference_value referenceValue,amount,nature FROM payroll_items WHERE payroll_id=? ORDER BY sort_order,id`,[row.id]);
+      const items=itemRows.map((item)=>({code:String(item.code),description:String(item.description),reference:item.referenceValue==null?null:String(item.referenceValue),amount:Number(item.amount),nature:String(item.nature)}));
+      const rawReference=parseJson<Record<string,unknown>>(row.rawReferenceJson,{});const base=(rawReference.base??{}) as Record<string,unknown>;
+      const salaryBase=items.find((item)=>item.code==='1'&&item.nature==='EARNING')?.amount??null;const fgtsBase=base.vl_base_fgts==null?null:Number(base.vl_base_fgts);
+      const pdf=buildPayrollPdf({employeeName:String(row.name),cpfMasked:maskCpf(String(row.cpf)),sageCode:String(row.sageCode),competence:`${String(row.month).padStart(2,'0')}/${row.year}`,typeLabel:String(row.typeLabel),jobTitle:row.jobTitle?String(row.jobTitle):null,admissionDate:row.admissionDate?String(row.admissionDate):null,cbo:sageSnapshotValue(row.sageSnapshotJson,cboAliases),gross:row.gross==null?null:Number(row.gross),deductions:row.deductions==null?null:Number(row.deductions),net:row.net==null?null:Number(row.net),salaryBase,inssBase:base.vl_base_inss==null?null:Number(base.vl_base_inss),fgtsBase,fgtsMonth:fgtsBase==null?null:Math.round(fgtsBase*8)/100,irrfBase:base.vl_base_irrf==null?null:Number(base.vl_base_irrf),irrfBracket:0,items});
+      const stored=await this.storage.write(String(row.originalPath),pdf);await this.pool.execute(`UPDATE payroll_documents SET original_sha256=?,updated_at=UTC_TIMESTAMP() WHERE payroll_id=?`,[stored.sha256,row.id]);refreshed++;
+    }
+    return refreshed;
   }
 
   async list(search=''):Promise<Record<string,unknown>[]>{

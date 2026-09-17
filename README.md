@@ -113,3 +113,27 @@ Consulte `DEPLOY-HOTFIX-0.4.1.md` para atualização.
 - PDFs já assinados permanecem imutáveis para preservar as evidências de assinatura.
 
 Consulte `DEPLOY-HOTFIX-0.4.3.md` para atualização.
+
+## Versão 0.4.4 — melhoria do comprovante de evidências
+
+- Novo layout do comprovante de evidências em PDF, com cabeçalho visual, logo do PayHub e textos organizados por seções.
+- Exibição mais clara dos blocos de identificação da assinatura, dados do dispositivo/sessão e trilha criptográfica.
+- Status do carimbo de tempo externo agora diferencia:
+  - **Não configurado**
+  - **Registrado com sucesso (TSA RFC 3161)**
+  - **Configurado, porém houve falha no registro externo**
+- Requer apenas atualização de código e rebuild/restart dos processos.
+
+Consulte `DEPLOY-HOTFIX-0.4.4.md` para atualização.
+
+## Versão 0.4.5 — PWA iPhone + cargo/função Sage
+
+- Corrigido o fluxo de holerite assinado no **PWA do iPhone**: o botão deixa de depender de abrir diretamente a URL do PDF e passa a preparar o arquivo para download/compartilhamento.
+- No iPhone, o funcionário recebe a opção **Compartilhar / Salvar no iPhone**, usando a folha nativa do iOS, incluindo **Salvar em Arquivos**, AirDrop, WhatsApp, e-mail etc.
+- Mantido botão de **Baixar PDF** como alternativa em desktop/Android.
+- Service Worker atualizado para `payhub-shell-v5` para evitar permanência do shell anterior após o deploy.
+- Connector Sage atualizado para **3.1.2**, ampliando a identificação de campos de função/cargo e tabelas de referência.
+- A API também possui fallback para inferir função/cargo a partir do snapshot do Sage quando o campo canônico `jobTitle` não vier preenchido.
+- Ao executar **Sincronizar Sage**, os PDFs atuais ainda não assinados do funcionário são regenerados com a função/cargo corrigida e o novo SHA-256 é salvo. PDFs já assinados não são alterados.
+
+Consulte `DEPLOY-HOTFIX-0.4.5.md`.
