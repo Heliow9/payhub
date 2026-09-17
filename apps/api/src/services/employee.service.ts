@@ -7,6 +7,7 @@ import { AuditService } from './audit.service.js';
 import { ConnectorService } from './connector.service.js';
 import { StorageService } from './storage.service.js';
 import { employeeDeletionBlockReason } from './employee-delete-policy.js';
+import { normalizeEmployeePhone, sageEmployeePatch } from './employee-data.js';
 
 export interface EmployeeLookupResult {
   sageEmployeeCode: string;
@@ -17,6 +18,11 @@ export interface EmployeeLookupResult {
   jobTitle?: string | null;
   phone?: string | null;
   status?: string | null;
+  currentSalary?: number | null;
+  terminationDate?: string | null;
+  terminationType?: string | null;
+  noticeStartDate?: string | null;
+  noticeDays?: number | null;
   raw?: Record<string, unknown>;
 }
 
@@ -33,6 +39,15 @@ export class EmployeeService {
     return jobId;
   }
 
+  async startSync(actorId:number,employeeId:number,meta:RequestMeta):Promise<number>{
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT cpf,sage_employee_code sageEmployeeCode FROM employees WHERE id=? LIMIT 1`,[employeeId]);
+    const row=rows[0];if(!row)throw notFound('Funcionário não encontrado.');
+    const cpf=normalizeCpf(String(row.cpf));
+    const jobId=await this.connector.createJob({requestedByUserId:actorId,jobType:'EMPLOYEE_LOOKUP_BY_CPF',scope:{companyCode:'1',cpf}});
+    await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_SAGE_SYNC_REQUESTED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,sageEmployeeCode:String(row.sageEmployeeCode)}});
+    return jobId;
+  }
+
   async lookupResult(jobId:number):Promise<{status:string;employee:EmployeeLookupResult|null;message?:string|null}>{
     const job=await this.connector.getJob(jobId);
     if(job.jobType!=='EMPLOYEE_LOOKUP_BY_CPF') throw badRequest('Job não é uma consulta de funcionário.');
@@ -44,11 +59,13 @@ export class EmployeeService {
     return {status:'FOUND',employee:{...first,cpf:normalizeCpf(first.cpf)}};
   }
 
-  async createFromLookup(actorId:number,jobId:number,groupId:number,meta:RequestMeta):Promise<number>{
+  async createFromLookup(actorId:number,jobId:number,groupId:number,phoneInput:string|undefined,meta:RequestMeta):Promise<number>{
     const result=await this.lookupResult(jobId);
     if(result.status!=='FOUND'||!result.employee) throw badRequest('O funcionário precisa ser localizado no Sage antes do cadastro.');
     const e=result.employee;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(e.birthDate)) throw badRequest('O Sage não retornou uma data de nascimento válida. Cadastro bloqueado.');
+    let phone='';try{phone=normalizeEmployeePhone(phoneInput??e.phone??'');}catch{throw badRequest('Telefone deve possuir DDD e 10 ou 11 dígitos.');}
+    const snapshot={...(e.raw??e),...(phone?{telefone_payhub:phone}:{})};
     const [groups]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM employee_groups WHERE id=? AND status='ACTIVE' LIMIT 1`,[groupId]);
     if(!groups[0]) throw badRequest('Grupo inválido ou inativo.');
     const conn=await this.pool.getConnection();
@@ -57,7 +74,7 @@ export class EmployeeService {
       const [insert]=await conn.execute<ResultSetHeader>(
         `INSERT INTO employees (company_code,sage_employee_code,cpf,name,birth_date,admission_date,job_title,phone,sage_status,group_id,status,sage_snapshot_json,created_by_user_id,created_at,updated_at)
          VALUES ('1',?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,
-        [String(e.sageEmployeeCode),normalizeCpf(e.cpf),String(e.name),e.birthDate,e.admissionDate??null,e.jobTitle??null,e.phone??null,e.status??null,groupId,JSON.stringify(e.raw??e),actorId]
+        [String(e.sageEmployeeCode),normalizeCpf(e.cpf),String(e.name),e.birthDate,e.admissionDate??null,e.jobTitle??null,phone||null,e.status??null,groupId,JSON.stringify(snapshot),actorId]
       );
       const id=insert.insertId;
       await conn.execute(`INSERT INTO employee_credentials (employee_id,pin_hash,activated_at,pin_changed_at,failed_attempts,locked_until,last_login_at,updated_at) VALUES (?,NULL,NULL,NULL,0,NULL,NULL,UTC_TIMESTAMP())`,[id]);
@@ -66,6 +83,19 @@ export class EmployeeService {
       await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_CREATED',targetType:'EMPLOYEE',targetId:id,meta,metadata:{groupId,sageEmployeeCode:e.sageEmployeeCode}});
       return id;
     }catch(error){await conn.rollback();if((error as {code?:string}).code==='ER_DUP_ENTRY') throw conflict('Funcionário já cadastrado.');throw error;}finally{conn.release();}
+  }
+
+  async applySync(actorId:number,employeeId:number,jobId:number,meta:RequestMeta):Promise<void>{
+    const result=await this.lookupResult(jobId);
+    if(result.status!=='FOUND'||!result.employee)throw badRequest('A sincronização precisa concluir a consulta no Sage antes de aplicar os dados.');
+    const e=result.employee;
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT cpf,sage_employee_code sageEmployeeCode FROM employees WHERE id=? LIMIT 1`,[employeeId]);
+    const current=rows[0];if(!current)throw notFound('Funcionário não encontrado.');
+    if(normalizeCpf(String(current.cpf))!==normalizeCpf(e.cpf)||String(current.sageEmployeeCode)!==String(e.sageEmployeeCode))throw conflict('O resultado do Sage não corresponde ao funcionário selecionado.');
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(e.birthDate))throw badRequest('O Sage não retornou uma data de nascimento válida. Sincronização bloqueada.');
+    const patch=sageEmployeePatch(e);
+    await this.pool.execute(`UPDATE employees SET name=?,birth_date=?,admission_date=?,job_title=?,sage_status=?,sage_snapshot_json=?,updated_at=UTC_TIMESTAMP() WHERE id=?`,[patch.name,patch.birthDate,patch.admissionDate,patch.jobTitle,patch.sageStatus,patch.snapshotJson,employeeId]);
+    await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_SAGE_SYNC_APPLIED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,jobTitle:patch.jobTitle,sageStatus:patch.sageStatus}});
   }
 
   async list(search=''):Promise<Record<string,unknown>[]>{

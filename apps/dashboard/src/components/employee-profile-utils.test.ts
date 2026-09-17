@@ -3,23 +3,10 @@ import { buildEmployeeProfile, profileValue } from './employee-profile-utils';
 
 describe('employee Sage profile',()=>{
   it('normaliza dados funcionais, documentos e remuneração a partir do snapshot Sage',()=>{
-    const profile=buildEmployeeProfile({
-      nr_pis:'140.84641.51-7',nr_ctps:'30855',serie_ctps:'00094',uf_ctps:'PE',
-      nr_rg:'8955862',dt_emissao_rg:'2013-05-04',uf_rg:'PE',orgao_emissor_rg:'SDS',
-      endereco:'Rua Duarte Coelho',numero:'349',bairro:'Santa Tereza',cidade:'Olinda',uf:'PE',cep:'53010010',nr_celular:'81994262615',
-      sexo:'M',estado_civil:'2',instrucao:'7',cd_cbo:'313205',salario:'2783.42',horas_semanais:'44',regime_jornada:'MENSALISTA',departamento:'REAL ENERGY - PE',dt_demissao:'2026-01-30'
-    });
-    expect(profile.documents.find((x)=>x.label==='PIS/PASEP')?.value).toBe('140.84641.51-7');
-    expect(profile.documents.find((x)=>x.label==='CTPS')?.value).toContain('30855');
-    expect(profile.personal.find((x)=>x.label==='Endereço')?.value).toContain('Rua Duarte Coelho');
-    expect(profile.functional.find((x)=>x.label==='CBO')?.value).toBe('313205');
-    expect(profile.compensation.find((x)=>x.label==='Salário atual')?.value).toContain('2.783,42');
-    expect(profile.functional.find((x)=>x.label==='Demissão')?.value).toBe('30/01/2026');
+    const profile=buildEmployeeProfile({nr_pis:'140.84641.51-7',nr_ctps:'30855',serie_ctps:'00094',uf_ctps:'PE',nr_rg:'8955862',dt_emissao_rg:'2013-05-04',uf_rg:'PE',orgao_emissor_rg:'SDS',endereco:'Rua Duarte Coelho',numero:'349',bairro:'Santa Tereza',cidade:'Olinda',uf:'PE',cep:'53010010',nr_celular:'81994262615',sexo:'M',estado_civil:'2',instrucao:'7',cd_cbo:'313205',salario_atual:'2783.42',horas_semanais:'44',regime_jornada:'MENSALISTA',departamento:'REAL ENERGY - PE',dt_demissao:'2026-01-30'});
+    expect(profile.documents.find((x)=>x.label==='PIS/PASEP')?.value).toBe('140.84641.51-7');expect(profile.documents.find((x)=>x.label==='CTPS')?.value).toContain('30855');expect(profile.personal.find((x)=>x.label==='Endereço')?.value).toContain('Rua Duarte Coelho');expect(profile.functional.find((x)=>x.label==='CBO')?.value).toBe('313205');expect(profile.compensation.find((x)=>x.label==='Salário atual')?.value).toContain('2.783,42');expect(profile.functional.find((x)=>x.label==='Data da demissão')?.value).toBe('30/01/2026');
   });
-  it('retorna somente campos existentes e encontra aliases sem diferenciar maiúsculas',()=>{
-    const profile=buildEmployeeProfile({NR_CELULAR:'81999998888'});
-    expect(profile.personal).toEqual([{label:'Celular',value:'81999998888'}]);
-    expect(profile.documents).toEqual([]);
-    expect(profileValue({Cd_CbO:'313205'},['cd_cbo'])).toBe('313205');
-  });
+  it('exibe situação, função e aviso prévio canônicos do Sage',()=>{const profile=buildEmployeeProfile({funcao_atual:'TECNICO INFORMATICA',situacao_sage:'DEMITIDO',dt_demissao:'2026-01-30',tipo_demissao:'Dispensa sem justa causa',dt_inicio_aviso:'2025-12-11',dias_aviso:51});expect(profile.functional).toEqual(expect.arrayContaining([{label:'Função atual',value:'TECNICO INFORMATICA'},{label:'Situação Sage',value:'DEMITIDO'},{label:'Tipo de demissão',value:'Dispensa sem justa causa'},{label:'Início do aviso prévio',value:'11/12/2025'},{label:'Dias de aviso',value:'51 dias'}]));});
+  it('normaliza históricos salarial e funcional',()=>{const p=buildEmployeeProfile({historico_salarios:[{date:'2025-07-01',salary:2783.42,weeklyHours:44},{date:'2024-05-01',salary:2134.06,weeklyHours:44}],historico_funcoes:[{date:'2018-09-03',jobTitle:'TECNICO INFORMATICA',functionCode:'70'}]});expect(p.salaryHistory[0]).toMatchObject({date:'01/07/2025',primary:expect.stringContaining('2.783,42')});expect(p.functionHistory[0]).toMatchObject({date:'03/09/2018',primary:'TECNICO INFORMATICA',secondary:'Código 70'});});
+  it('retorna somente campos existentes e encontra aliases sem diferenciar maiúsculas',()=>{const profile=buildEmployeeProfile({NR_CELULAR:'81999998888'});expect(profile.personal).toEqual([{label:'Celular',value:'81999998888'}]);expect(profile.documents).toEqual([]);expect(profileValue({Cd_CbO:'313205'},['cd_cbo'])).toBe('313205');});
 });

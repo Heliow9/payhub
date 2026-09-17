@@ -75,3 +75,15 @@ pm2 save
 O conector Windows fica em `connector/PayHub.SageConnector`.
 
 Para atualização da versão 0.4.0 em produção, consulte `DEPLOY-HOTFIX-0.4.0.md`.
+
+## Versão 0.4.1 — dados Sage vigentes, PWA e assinatura
+- salário/função atuais pela última vigência do Sage;
+- sincronização cadastral manual e histórico salarial/funcional;
+- telefone brasileiro no cadastro;
+- situação Sage e dados de desligamento/aviso quando disponíveis;
+- PWA com visualização discriminativa do holerite;
+- assinatura desenhada disponível em Assinatura/Evidências no administrativo;
+- PDF assinado com declaração e aceite completos sem truncamento;
+- Connector Sage 3.1.0.
+
+Consulte `DEPLOY-HOTFIX-0.4.1.md` para atualização.

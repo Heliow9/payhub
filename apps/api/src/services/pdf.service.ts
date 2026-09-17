@@ -31,6 +31,7 @@ export interface PdfPayrollInput{
   irrfBracket?:number|null;
   items:Array<{code:string;description:string;reference?:string|null;amount:number;nature:string}>;
   footer?:string[];
+  signatureInfo?:{signedAt:string;acceptanceText:string};
 }
 
 type PdfObject=Buffer;
@@ -46,7 +47,7 @@ function drawReceipt(input:PdfPayrollInput,y0:number):string[]{
   const c:string[]=[];const x0=14;const right=581;const signatureLeft=531;const mainRight=signatureLeft;const h=370;const top=y0+h;
   const companyName=input.companyName??'REAL ENERGY LTDA';const companyAddress=input.companyAddress??'RUA BEIRA CANAL, 49';const companyDocument=input.companyDocument??'41.116.138/0001-38 OLINDA PE';const companyUnit=input.companyUnit??'REAL ENERGY - PE';
   const jobTitle=(input.jobTitle??'—').toUpperCase();const employee=input.employeeName.toUpperCase();
-  const headerBottom=top-60;const empBottom=headerBottom-44;const tableHeadBottom=empBottom-15;const basesTop=y0+34;const totalsTop=y0+90;const bodyBottom=totalsTop;
+  const headerBottom=top-60;const empBottom=headerBottom-44;const tableHeadBottom=empBottom-15;const basesTop=y0+34;const totalsTop=y0+90;const bodyBottom=input.signatureInfo?y0+130:totalsTop;
   c.push(rect(x0,y0,right-x0,h));c.push(line(signatureLeft,y0,signatureLeft,top));
   c.push(text(x0+4,top-11,companyName,8,true),text(x0+4,top-22,companyAddress,7),text(x0+4,top-33,companyDocument,7),text(x0+4,top-44,`${companyName} / ${companyAddress.replace(', ',',')}`,7));
   c.push(textRight(mainRight-8,top-12,'Recibo de Pagamento de Salário',10,true),textRight(mainRight-8,top-27,`Mês: ${monthLabel(input.competence)}`,8));
@@ -65,9 +66,14 @@ function drawReceipt(input:PdfPayrollInput,y0:number):string[]{
   c.push(line(xCode,empBottom,xCode,bodyBottom),line(xDesc,empBottom,xDesc,bodyBottom),line(xRef,empBottom,xRef,bodyBottom),line(xVenc,empBottom,xVenc,bodyBottom));
   c.push(textCenter(x0,empBottom-10,xCode-x0,'Cód.',5.5),textCenter(xCode,empBottom-10,xDesc-xCode,'Descrição',5.5),textCenter(xDesc,empBottom-10,xRef-xDesc,'Referência',5.5),textCenter(xRef,empBottom-10,xVenc-xRef,'Vencimentos',5.5),textCenter(xVenc,empBottom-10,mainRight-xVenc,'Descontos',5.5));
   c.push(line(x0,tableHeadBottom,mainRight,tableHeadBottom));
-  const items=input.items.slice(0,12);let y=tableHeadBottom-12;
-  for(const item of items){c.push(text(x0+4,y,eventCode(item.code),6.6),text(xCode+4,y,fit(item.description,45),6.6),textCenter(xDesc,y,xRef-xDesc,item.reference??'—',6.6),textRight(xVenc-7,y,amount(item,'EARNING'),6.8),textRight(mainRight-7,y,amount(item,'DEDUCTION'),6.8));y-=13.5;}
-  if(input.footer?.length){const note=fit(input.footer.join(' | '),135);c.push(text(xCode+4,bodyBottom+4,note,4.6));}
+  const items=input.items.slice(0,12);const available=Math.max(72,tableHeadBottom-bodyBottom-8);const rowStep=Math.min(13.5,Math.max(8.6,available/Math.max(items.length,1)));const rowFont=rowStep<10?5.6:6.6;let y=tableHeadBottom-rowStep;
+  for(const item of items){c.push(text(x0+4,y,eventCode(item.code),rowFont),text(xCode+4,y,fit(item.description,rowStep<10?49:45),rowFont),textCenter(xDesc,y,xRef-xDesc,item.reference??'—',rowFont),textRight(xVenc-7,y,amount(item,'EARNING'),rowFont+.2),textRight(mainRight-7,y,amount(item,'DEDUCTION'),rowFont+.2));y-=rowStep;}
+  if(input.signatureInfo){
+    c.push(line(x0,bodyBottom,mainRight,bodyBottom));
+    c.push(text(x0+4,bodyBottom-10,'DECLARO TER RECEBIDO A IMPORTÂNCIA LÍQUIDA DISCRIMINADA NESTE RECIBO',5.1,true));
+    c.push(text(x0+4,bodyBottom-21,`Assinado eletronicamente em ${input.signatureInfo.signedAt}.`,4.8,true));
+    c.push(text(x0+4,bodyBottom-32,input.signatureInfo.acceptanceText,4.35));
+  }else if(input.footer?.length){const note=fit(input.footer.join(' | '),135);c.push(text(xCode+4,bodyBottom+4,note,4.6));}
   c.push(line(x0,totalsTop,mainRight,totalsTop));c.push(line(xDesc,totalsTop,xDesc,basesTop));c.push(line(xVenc,totalsTop,xVenc,basesTop));
   c.push(textCenter(xDesc,totalsTop-11,xVenc-xDesc,'Total de Vencimentos',5.3),textCenter(xVenc,totalsTop-11,mainRight-xVenc,'Total de Descontos',5.3));
   c.push(textRight(xVenc-8,totalsTop-26,numberBr(input.gross),8),textRight(mainRight-8,totalsTop-26,numberBr(input.deductions),8));
@@ -75,7 +81,7 @@ function drawReceipt(input:PdfPayrollInput,y0:number):string[]{
   c.push(line(x0,basesTop,mainRight,basesTop));
   const baseW=(mainRight-x0)/6;const baseLabels=['Salário Base','Sal. Contr. INSS','Base Cálc. FGTS','FGTS do mês','Base Cálc. IRRF','Faixa IRRF'];const baseValues=[input.salaryBase,input.inssBase,input.fgtsBase,input.fgtsMonth,input.irrfBase,input.irrfBracket];
   for(let i=0;i<6;i++){const bx=x0+i*baseW;c.push(textCenter(bx,y0+21,baseW,baseLabels[i]!,5.0),textCenter(bx,y0+8,baseW,numberBr(baseValues[i]),7.2));}
-  c.push(rotatedText(signatureLeft+15,y0+20,'DECLARO TER RECEBIDO A IMPORTÂNCIA LÍQUIDA DISCRIMINADA NESTE RECIBO',5.4));
+  if(!input.signatureInfo)c.push(rotatedText(signatureLeft+15,y0+20,'DECLARO TER RECEBIDO A IMPORTÂNCIA LÍQUIDA DISCRIMINADA NESTE RECIBO',5.4));
   c.push(line(signatureLeft+31,y0+96,right-6,y0+96),rotatedText(signatureLeft+42,y0+105,'ASSINATURA DO FUNCIONÁRIO',6.2,true));
   c.push(line(signatureLeft+31,y0+24,right-6,y0+24),rotatedText(signatureLeft+42,y0+30,'DATA',6));
   return c;
