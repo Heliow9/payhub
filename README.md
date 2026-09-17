@@ -34,6 +34,17 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - Opção **Lembrar e-mail neste dispositivo** no acesso administrativo. Somente o e-mail é armazenado; senha e PIN nunca são persistidos no navegador.
 - Correções de tipagem TypeScript já aplicadas em `connector.service.ts`, `payroll.service.ts` e `AppShell.tsx`.
 
+
+## Versão 0.3.4 - holerite padrão Sage
+
+- Documento visual e PDF seguindo o recibo de pagamento de salário da Real Energy/Sage.
+- Duas vias no PDF A4.
+- Vencimentos listados antes dos descontos, seguindo a ordem de códigos do modelo Sage.
+- Rótulos em português: **VENCIMENTOS** e **DESCONTOS**.
+- Mesmo documento exibido no administrativo, portal do funcionário e tela de assinatura.
+- Bases de INSS, FGTS e IRRF apresentadas a partir de `ProcBase`.
+- Template documental versionado para que nova busca da competência gere o PDF atualizado.
+
 ## Instalação
 
 ```bash

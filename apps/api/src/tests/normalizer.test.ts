@@ -43,6 +43,7 @@ describe('normalização Sage', () => {
     expect(payrolls[0]?.net).toBeCloseTo(2135.20, 2);
     expect(payrolls[0]?.items.find((item) => item.code === '76')).toMatchObject({ description: 'DESCONTO DE ATRASOS', reference: '14:37', amount: 161.71, nature: 'DEDUCTION' });
     expect(payrolls[0]?.items.find((item) => item.code === '361')).toMatchObject({ description: 'HORA EXTRA 070%', reference: '13:51', amount: 228.39, nature: 'EARNING' });
+    expect(payrolls[0]?.items.map((item) => item.code)).toEqual(['1','18','361','369','76','78','79','80','99138']);
   });
 
   it('usa a vigência de evento aplicável à competência', () => {

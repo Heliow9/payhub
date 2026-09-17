@@ -8,6 +8,14 @@ import { buildPayrollPdf } from './pdf.service.js';
 import { StorageService } from './storage.service.js';
 import { normalizePayrollBatches, type SourceBatch } from './normalizer.service.js';
 
+
+function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
+  const snapshot=parseJson<Record<string,unknown>>(raw,{});const entries=new Map(Object.entries(snapshot).map(([k,v])=>[k.toLowerCase(),v]));
+  for(const alias of aliases){const value=entries.get(alias.toLowerCase());if(value!==undefined&&value!==null&&String(value).trim()!=='')return String(value).trim();}
+  return null;
+}
+const cboAliases=['cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
+
 export class PayrollService{
   constructor(private pool:Pool,private storage:StorageService,private audit:AuditService){}
 
@@ -19,7 +27,7 @@ export class PayrollService{
     const batches:SourceBatch[]=batchRows.map((b)=>({sourceTable:String(b.sourceTable),rows:parseJson<Array<Record<string,unknown>>>(b.payload,[])}));
     const normalized=normalizePayrollBatches(batches,target);let created=0,unchanged=0,skipped=0;
     for(const p of normalized){
-      const [employeeRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,name,cpf,sage_employee_code sageCode FROM employees WHERE company_code='1' AND sage_employee_code=? AND status='ACTIVE' LIMIT 1`,[p.sageEmployeeCode]);
+      const [employeeRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,name,cpf,sage_employee_code sageCode,job_title jobTitle,DATE_FORMAT(admission_date,'%Y-%m-%d') admissionDate,sage_snapshot_json sageSnapshotJson FROM employees WHERE company_code='1' AND sage_employee_code=? AND status='ACTIVE' LIMIT 1`,[p.sageEmployeeCode]);
       const employee=employeeRows[0];if(!employee){skipped++;continue;}
       const [currentRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,version,source_hash sourceHash,status FROM payrolls WHERE employee_id=? AND year=? AND month=? AND payroll_type=? AND is_current=1 ORDER BY version DESC LIMIT 1`,[employee.id,p.year,p.month,p.payrollType]);
       const current=currentRows[0];if(current&&String(current.sourceHash)===p.sourceHash){unchanged++;continue;}
@@ -35,7 +43,7 @@ export class PayrollService{
         await conn.commit();
       }catch(error){await conn.rollback();throw error;}finally{conn.release();}
       try{
-        const pdf=buildPayrollPdf({employeeName:String(employee.name),cpfMasked:maskCpf(String(employee.cpf)),sageCode:String(employee.sageCode),competence:`${String(p.month).padStart(2,'0')}/${p.year}`,typeLabel:p.payrollTypeLabel,gross:p.gross,deductions:p.deductions,net:p.net,items:p.items.map((i)=>({code:i.code,description:i.description,reference:i.reference,amount:i.amount,nature:i.nature})),footer:['Documento gerado pelo PayHub a partir dos dados de folha recebidos do Sage. O hash SHA-256 é preservado para controle de integridade.']});
+        const base=(p.rawReference?.base??{}) as Record<string,unknown>;const salaryBase=p.items.find((i)=>i.code==='1'&&i.nature==='EARNING')?.amount??null;const fgtsBase=base.vl_base_fgts==null?null:Number(base.vl_base_fgts);const pdf=buildPayrollPdf({employeeName:String(employee.name),cpfMasked:maskCpf(String(employee.cpf)),sageCode:String(employee.sageCode),competence:`${String(p.month).padStart(2,'0')}/${p.year}`,typeLabel:p.payrollTypeLabel,jobTitle:employee.jobTitle?String(employee.jobTitle):null,admissionDate:employee.admissionDate?String(employee.admissionDate):null,cbo:sageSnapshotValue(employee.sageSnapshotJson,cboAliases),gross:p.gross,deductions:p.deductions,net:p.net,salaryBase,inssBase:base.vl_base_inss==null?null:Number(base.vl_base_inss),fgtsBase,fgtsMonth:fgtsBase==null?null:Math.round(fgtsBase*8)/100,irrfBase:base.vl_base_irrf==null?null:Number(base.vl_base_irrf),irrfBracket:0,items:p.items.map((i)=>({code:i.code,description:i.description,reference:i.reference,amount:i.amount,nature:i.nature})),footer:['Documento gerado pelo PayHub a partir dos dados de folha recebidos do Sage.']});
         const relative=`payrolls/${employee.id}/${p.year}/${String(p.month).padStart(2,'0')}/${p.payrollType}/v${version}/original.pdf`;const stored=await this.storage.write(relative,pdf);
         await this.pool.execute(`INSERT INTO payroll_documents (payroll_id,original_path,original_sha256,created_at,updated_at) VALUES (?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,[payrollId,stored.path,stored.sha256]);
         await this.pool.execute(`UPDATE payrolls SET status='READY',updated_at=UTC_TIMESTAMP() WHERE id=?`,[payrollId]);created++;
@@ -55,8 +63,8 @@ export class PayrollService{
 
   async detail(payrollId:number,employeeId?:number):Promise<Record<string,unknown>>{
     const params:number[]=[payrollId];let employeeClause='';if(employeeId){employeeClause=' AND p.employee_id=? AND p.status IN (\'SIGNATURE_REQUESTED\',\'VIEWED\',\'SIGNED\')';params.push(employeeId);}
-    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.*,e.name employeeName,e.cpf,e.sage_employee_code sageCode,g.name groupName,d.original_sha256 originalSha256,d.signed_sha256 signedSha256,d.receipt_sha256 receiptSha256,sr.id signatureRequestId,sr.status signatureStatus,sr.acceptance_text acceptanceText,aset.signature_mode signatureMode FROM payrolls p JOIN employees e ON e.id=p.employee_id JOIN employee_groups g ON g.id=e.group_id LEFT JOIN payroll_documents d ON d.payroll_id=p.id LEFT JOIN signature_requests sr ON sr.payroll_id=p.id LEFT JOIN app_settings aset ON aset.id=1 WHERE p.id=? ${employeeClause} LIMIT 1`,params);const row=rows[0];if(!row)throw notFound('Holerite não encontrado.');
-    const [items]=await this.pool.execute<RowDataPacket[]>(`SELECT event_code eventCode,description,reference_value referenceValue,amount,nature,sort_order sortOrder FROM payroll_items WHERE payroll_id=? ORDER BY sort_order,id`,[payrollId]);return{...row,summary:parseJson(row.summary_json,{}),summary_json:undefined,rawReference:parseJson(row.raw_reference_json,{}),raw_reference_json:undefined,items};
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.*,e.name employeeName,e.cpf,e.sage_employee_code sageCode,e.job_title jobTitle,DATE_FORMAT(e.admission_date,'%Y-%m-%d') admissionDate,e.sage_snapshot_json sageSnapshotJson,g.name groupName,d.original_sha256 originalSha256,d.signed_sha256 signedSha256,d.receipt_sha256 receiptSha256,sr.id signatureRequestId,sr.status signatureStatus,sr.acceptance_text acceptanceText,aset.signature_mode signatureMode FROM payrolls p JOIN employees e ON e.id=p.employee_id JOIN employee_groups g ON g.id=e.group_id LEFT JOIN payroll_documents d ON d.payroll_id=p.id LEFT JOIN signature_requests sr ON sr.payroll_id=p.id LEFT JOIN app_settings aset ON aset.id=1 WHERE p.id=? ${employeeClause} LIMIT 1`,params);const row=rows[0];if(!row)throw notFound('Holerite não encontrado.');const cbo=sageSnapshotValue(row.sageSnapshotJson,cboAliases);delete row.sageSnapshotJson;
+    const [items]=await this.pool.execute<RowDataPacket[]>(`SELECT event_code eventCode,description,reference_value referenceValue,amount,nature,sort_order sortOrder FROM payroll_items WHERE payroll_id=? ORDER BY sort_order,id`,[payrollId]);return{...row,cbo,summary:parseJson(row.summary_json,{}),summary_json:undefined,rawReference:parseJson(row.raw_reference_json,{}),raw_reference_json:undefined,items};
   }
 
   async release(actorId:number,payrollId:number,acceptanceText:string,meta:RequestMeta):Promise<number>{

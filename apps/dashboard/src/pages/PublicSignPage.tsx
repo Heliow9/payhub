@@ -1,8 +1,8 @@
 import { useEffect,useState } from 'react';
 import { api } from '../api/client';
 import { SignatureCanvas } from '../components/SignatureCanvas';
+import { PayrollDocument } from '../components/PayrollDocument';
 
-const money=(v:any)=>v==null?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 function cpfMask(value:string){const d=value.replace(/\D/g,'').slice(0,11);return d.replace(/^(\d{3})(\d)/,'$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1-$2');}
 
 export function PublicSignPage({token}:{token:string}){
@@ -23,8 +23,7 @@ export function PublicSignPage({token}:{token:string}){
       {info.hasPin?<div className="form-section"><label>PIN de 6 dígitos<input type="password" inputMode="numeric" maxLength={6} value={pin} onChange={(e)=>setPin(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="••••••"/></label><p className="field-hint">Confirme sua identidade para visualizar o holerite.</p></div>:<div className="first-access-box"><span className="eyebrow">PRIMEIRO ACESSO</span><h3>Confirme sua identidade</h3><p>Confirme CPF e data de nascimento e crie seu PIN de 6 dígitos.</p><div className="form-grid two"><label>CPF<input inputMode="numeric" value={cpf} onChange={(e)=>setCpf(cpfMask(e.target.value))} placeholder="000.000.000-00"/></label><label>Data de nascimento<input type="date" value={birthDate} onChange={(e)=>setBirthDate(e.target.value)}/></label><label>Novo PIN<input type="password" inputMode="numeric" maxLength={6} value={newPin} onChange={(e)=>setNewPin(e.target.value.replace(/\D/g,'').slice(0,6))}/></label><label>Confirmar PIN<input type="password" inputMode="numeric" maxLength={6} value={confirm} onChange={(e)=>setConfirm(e.target.value.replace(/\D/g,'').slice(0,6))}/></label></div></div>}
       {error&&<div className="form-error">{error}</div>}<button className="primary-button large" disabled={busy||(info.hasPin?pin.length!==6:(cpf.replace(/\D/g,'').length!==11||!birthDate||newPin.length!==6||newPin!==confirm))} onClick={()=>void verify()}>{busy?'Validando…':'Confirmar identidade e visualizar holerite'}</button>
     </> : <>
-      <div className="payroll-summary"><div><span>Proventos</span><strong>{money(verified.payroll.grossAmount)}</strong></div><div><span>Descontos</span><strong>{money(verified.payroll.deductionAmount)}</strong></div><div className="net"><span>Líquido</span><strong>{money(verified.payroll.netAmount)}</strong></div></div>
-      <div className="table-card inner"><table><thead><tr><th>Código</th><th>Descrição</th><th>Referência</th><th className="right">Valor</th></tr></thead><tbody>{verified.payroll.items?.map((i:any,k:number)=><tr key={k}><td>{i.eventCode}</td><td>{i.description}</td><td>{i.referenceValue??'—'}</td><td className="right">{money(i.amount)}</td></tr>)}</tbody></table></div>
+      <PayrollDocument data={verified.payroll}/>
       <div className="acceptance-box"><label className="accept-check"><input type="checkbox" checked={accepted} onChange={(e)=>setAccepted(e.target.checked)}/><span>{info.acceptanceText}</span></label></div>
       {requireDraw&&<div className="form-section"><span className="label strong">Assinatura manuscrita em tela</span><SignatureCanvas onChange={setDrawing}/></div>}
       <div className="signature-security"><span>🔒</span><p>A assinatura registra credencial validada, data/hora, IP, dispositivo, hash SHA-256 do PDF e envelope criptográfico de evidências.</p></div>

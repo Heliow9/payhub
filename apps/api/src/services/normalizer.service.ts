@@ -177,6 +177,27 @@ function rounded(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function itemNatureRank(nature: NormalizedItem['nature']): number {
+  if (nature === 'EARNING') return 0;
+  if (nature === 'DEDUCTION') return 1;
+  if (nature === 'BASE') return 2;
+  return 3;
+}
+
+function eventCodeNumber(code: string): number {
+  const normalized = code.replace(/\D/g, '');
+  const parsed = Number(normalized);
+  return normalized && Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function sortPayrollItems(items: NormalizedItem[]): NormalizedItem[] {
+  return [...items].sort((a, b) =>
+    itemNatureRank(a.nature) - itemNatureRank(b.nature)
+    || eventCodeNumber(a.code) - eventCodeNumber(b.code)
+    || a.code.localeCompare(b.code, 'pt-BR')
+  );
+}
+
 export function normalizePayrollBatches(batches: SourceBatch[], targetEmployees: string[]): NormalizedPayroll[] {
   const tables = new Map<string, Array<Record<string, unknown>>>();
   for (const batch of batches) {
@@ -239,7 +260,7 @@ export function normalizePayrollBatches(batches: SourceBatch[], targetEmployees:
     const eventRows = financialEvents.filter((row) => samePayroll(row, meta));
     if (eventRows.length === 0) continue;
 
-    const items: NormalizedItem[] = eventRows.map((row) => {
+    const items: NormalizedItem[] = sortPayrollItems(eventRows.map((row) => {
       const code = text(pick(row, aliases.event)) || '—';
       const definition = applicableDefinition(definitionsByCode, code, meta.year, meta.month);
       const description = text(pick(definition ?? {}, aliases.desc))
@@ -254,7 +275,7 @@ export function normalizePayrollBatches(batches: SourceBatch[], targetEmployees:
         amount: Math.abs(signedAmount),
         nature,
       };
-    });
+    }));
 
     const grossValue = items
       .filter((item) => item.nature === 'EARNING')
@@ -284,6 +305,7 @@ export function normalizePayrollBatches(batches: SourceBatch[], targetEmployees:
     };
 
     const sourceHash = sha256(canonicalJson({
+      documentTemplateVersion: 'sage-holerite-v2',
       capa: capaRow,
       base: baseRow,
       eventosProcessados: eventRows,
