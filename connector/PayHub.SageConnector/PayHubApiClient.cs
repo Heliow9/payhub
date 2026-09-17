@@ -7,8 +7,9 @@ namespace PayHub.SageConnector;
 
 public sealed record ImportJobDto(
     long Id,
-    long RequestedByUserId,
+    long? RequestedByUserId,
     long? ConnectorId,
+    long? PayrollRunId,
     string JobType,
     string Status,
     JsonElement? Scope,
@@ -19,6 +20,7 @@ public sealed record ImportJobDto(
     DateTimeOffset? ClaimedAt,
     DateTimeOffset? StartedAt,
     DateTimeOffset? FinishedAt,
+    DateTimeOffset? NormalizedAt,
     string? ErrorMessage,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
@@ -80,12 +82,6 @@ public sealed class PayHubApiClient
 
     public Task SendBatchAsync(long jobId, string sourceTable, int batchNumber, IReadOnlyList<Dictionary<string, object?>> rows, CancellationToken cancellationToken) =>
         SendNoContentAsync(HttpMethod.Post, $"api/connector-agent/jobs/{jobId}/batches", new { sourceTable, batchNumber, rows }, cancellationToken);
-
-    public Task SendDiscoveryBatchAsync(long jobId, IReadOnlyList<Dictionary<string, object?>> rows, CancellationToken cancellationToken) =>
-        SendNoContentAsync(HttpMethod.Post, $"api/connector-agent/jobs/{jobId}/batches", new { sourceTable = "SchemaDiscovery", batchNumber = 0, rows }, cancellationToken);
-
-    public Task SendConnectionBatchAsync(long jobId, IReadOnlyList<Dictionary<string, object?>> rows, CancellationToken cancellationToken) =>
-        SendNoContentAsync(HttpMethod.Post, $"api/connector-agent/jobs/{jobId}/batches", new { sourceTable = "ConnectionTest", batchNumber = 0, rows }, cancellationToken);
 
     public Task CompleteAsync(long jobId, string? message, CancellationToken cancellationToken) =>
         SendNoContentAsync(HttpMethod.Post, $"api/connector-agent/jobs/{jobId}/complete", new { message }, cancellationToken);

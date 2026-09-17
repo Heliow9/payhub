@@ -1,128 +1,24 @@
-export type UserRole = 'MASTER' | 'ANALISTA';
-export type UserStatus = 'ACTIVE' | 'DISABLED';
+export type UserPrincipal={kind:'USER';id:number;name:string;email:string;role:'MASTER'|'ANALISTA';status:string};
+export type EmployeePrincipal={kind:'EMPLOYEE';id:number;name:string;cpf:string;status:string};
+export type Principal=UserPrincipal|EmployeePrincipal;
 
-export interface PayHubUser {
-  id: number;
-  name: string;
-  email: string;
-  role: UserRole;
-  status: UserStatus;
-  createdAt: string;
-  updatedAt: string;
-}
-
-
-export type ConnectorStatus = 'PENDING' | 'ONLINE' | 'OFFLINE' | 'DISABLED';
-export interface Connector {
-  id: number;
-  name: string;
-  machineName: string | null;
-  status: ConnectorStatus;
-  lastSeenAt: string | null;
-  lastIpAddress: string | null;
-  metadata: Record<string, unknown> | null;
-  createdByUserId: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type ImportJobType = 'CONNECTION_TEST' | 'SCHEMA_DISCOVERY' | 'PAYROLL_IMPORT';
-export type ImportJobStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-export interface ImportJobLog {
-  id: number;
-  jobId: number;
-  connectorId: number;
-  level: 'INFO' | 'WARN' | 'ERROR';
-  message: string;
-  metadata: Record<string, unknown> | null;
-  createdAt: string;
-}
-
-export interface ImportJob {
-  id: number;
-  requestedByUserId: number;
-  connectorId: number | null;
-  jobType: ImportJobType;
-  status: ImportJobStatus;
-  scope: Record<string, unknown> | null;
-  progressCurrent: number;
-  progressTotal: number;
-  progressMessage: string | null;
-  attemptCount: number;
-  claimedAt: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  errorMessage: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface DashboardModule {
-  key: string;
-  label: string;
-  status: 'ACTIVE' | 'NEXT_STAGE' | 'PLANNED';
-}
-
-export interface DashboardSummary {
-  user: PayHubUser;
-  platform: { name: string; stage: string; status: string };
-  modules: DashboardModule[];
-}
-
-async function api<T>(path: string, init: RequestInit = {}, csrfToken?: string): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
-
-  const response = await fetch(path, {
-    ...init,
-    headers,
-    credentials: 'include',
-  });
-
-  if (response.status === 204) return undefined as T;
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.error ?? 'Não foi possível concluir a operação.');
-  }
-  return payload as T;
-}
-
-export const client = {
-  login(email: string, password: string) {
-    return api<{ user: PayHubUser; csrfToken: string; expiresAt: string }>('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-  },
-  me() {
-    return api<{ user: PayHubUser; csrfToken: string }>('/api/auth/me');
-  },
-  logout(csrfToken: string) {
-    return api<void>('/api/auth/logout', { method: 'POST' }, csrfToken);
-  },
-  dashboard() {
-    return api<DashboardSummary>('/api/dashboard/summary');
-  },
-  users() {
-    return api<{ users: PayHubUser[] }>('/api/users');
-  },
-  createAnalyst(input: { name: string; email: string; password: string }, csrfToken: string) {
-    return api<{ user: PayHubUser }>('/api/users', { method: 'POST', body: JSON.stringify(input) }, csrfToken);
-  },
-  connectors() {
-    return api<{ connectors: Connector[] }>('/api/connectors');
-  },
-  createConnector(name: string, csrfToken: string) {
-    return api<{ connector: Connector; token: string }>('/api/connectors', { method: 'POST', body: JSON.stringify({ name }) }, csrfToken);
-  },
-  importJobs() {
-    return api<{ jobs: ImportJob[] }>('/api/import-jobs');
-  },
-  importJobLogs(jobId: number) {
-    return api<{ logs: ImportJobLog[] }>(`/api/import-jobs/${jobId}/logs`);
-  },
-  createImportJob(input: { jobType: ImportJobType; scope?: Record<string, unknown> }, csrfToken: string) {
-    return api<{ job: ImportJob }>('/api/import-jobs', { method: 'POST', body: JSON.stringify(input) }, csrfToken);
-  },
+export class ApiError extends Error{constructor(message:string,public status:number,public code?:string,public details?:unknown){super(message);}}
+let csrfToken=sessionStorage.getItem('payhub_csrf')??'';
+export function setCsrfToken(value:string){csrfToken=value;if(value)sessionStorage.setItem('payhub_csrf',value);else sessionStorage.removeItem('payhub_csrf');}
+async function request<T>(path:string,options:RequestInit={}):Promise<T>{const headers=new Headers(options.headers);if(options.body&&!headers.has('content-type'))headers.set('content-type','application/json');if(options.method&&options.method!=='GET'&&options.method!=='HEAD'&&csrfToken)headers.set('x-csrf-token',csrfToken);const response=await fetch(path,{...options,headers,credentials:'include'});if(response.status===204)return undefined as T;const contentType=response.headers.get('content-type')??'';if(!response.ok){let payload:any={};if(contentType.includes('application/json'))payload=await response.json().catch(()=>({}));throw new ApiError(payload.error??`Erro HTTP ${response.status}`,response.status,payload.code,payload.details);}return contentType.includes('application/json')?response.json():response.text() as T;}
+const json=(value:unknown)=>JSON.stringify(value);
+export const api={
+  me:()=>request<{principal:Principal}>('/api/auth/me'),
+  login:(identifier:string,password:string)=>request<{principal:Principal;csrfToken:string}>('/api/auth/login',{method:'POST',body:json({identifier,password})}),
+  firstAccess:(cpf:string,birthDate:string,pin:string)=>request<{principal:Principal;csrfToken:string}>('/api/auth/employee-first-access',{method:'POST',body:json({cpf,birthDate,pin})}),
+  logout:()=>request<void>('/api/auth/logout',{method:'POST'}),
+  dashboard:()=>request<any>('/api/dashboard'),
+  users:()=>request<any>('/api/users'),createAnalyst:(body:any)=>request<any>('/api/users',{method:'POST',body:json(body)}),setUserStatus:(id:number,status:string)=>request<void>(`/api/users/${id}/status`,{method:'PATCH',body:json({status})}),
+  employees:(search='')=>request<any>(`/api/employees?search=${encodeURIComponent(search)}`),employee:(id:number)=>request<any>(`/api/employees/${id}`),employeeLookup:(cpf:string)=>request<any>('/api/employees/lookup',{method:'POST',body:json({cpf})}),employeeLookupResult:(jobId:number)=>request<any>(`/api/employees/lookup/${jobId}/result`),createEmployee:(lookupJobId:number,groupId:number)=>request<any>('/api/employees',{method:'POST',body:json({lookupJobId,groupId})}),moveEmployee:(id:number,groupId:number)=>request<void>(`/api/employees/${id}/group`,{method:'PATCH',body:json({groupId})}),setEmployeeStatus:(id:number,status:string)=>request<void>(`/api/employees/${id}/status`,{method:'PATCH',body:json({status})}),searchEmployeeNow:(id:number,types:number[])=>request<any>(`/api/employees/${id}/search-now`,{method:'POST',body:json({types})}),
+  groups:()=>request<any>('/api/groups'),group:(id:number)=>request<any>(`/api/groups/${id}`),createGroup:(body:any)=>request<any>('/api/groups',{method:'POST',body:json(body)}),updateGroup:(id:number,body:any)=>request<void>(`/api/groups/${id}`,{method:'PUT',body:json(body)}),searchGroupNow:(id:number)=>request<any>(`/api/groups/${id}/search-now`,{method:'POST'}),
+  payrolls:(params:Record<string,string|number|undefined>={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!=='')q.set(k,String(v));});return request<any>(`/api/payrolls?${q}`);},payroll:(id:number)=>request<any>(`/api/payrolls/${id}`),releasePayroll:(id:number)=>request<any>(`/api/payrolls/${id}/release`,{method:'POST'}),signatureLink:(id:number,ttlMinutes?:number)=>request<any>(`/api/payrolls/${id}/signature-link`,{method:'POST',body:json(ttlMinutes?{ttlMinutes}:{})}),evidence:(id:number)=>request<any>(`/api/payrolls/${id}/evidence`),
+  myPayrolls:()=>request<any>('/api/payrolls/employee/me'),myPayroll:(id:number)=>request<any>(`/api/payrolls/employee/${id}`),signPayroll:(id:number,body:any)=>request<any>(`/api/payrolls/employee/${id}/sign`,{method:'POST',body:json(body)}),
+  connectors:()=>request<any>('/api/connectors'),createConnector:(name:string)=>request<any>('/api/connectors',{method:'POST',body:json({name})}),jobs:()=>request<any>('/api/import-jobs'),createJob:(jobType:string,scope:any=null)=>request<any>('/api/import-jobs',{method:'POST',body:json({jobType,scope})}),job:(id:number)=>request<any>(`/api/import-jobs/${id}`),jobLogs:(id:number)=>request<any>(`/api/import-jobs/${id}/logs`),
+  settings:()=>request<any>('/api/settings'),updateSettings:(body:any)=>request<void>('/api/settings',{method:'PUT',body:json(body)}),audit:()=>request<any>('/api/audit'),
+  publicSignInfo:(token:string)=>request<any>(`/api/public/sign/${encodeURIComponent(token)}`),publicSignVerify:(token:string,body:any)=>request<any>(`/api/public/sign/${encodeURIComponent(token)}/verify`,{method:'POST',body:json(body)}),publicSign:(token:string,body:any)=>request<any>(`/api/public/sign/${encodeURIComponent(token)}/sign`,{method:'POST',body:json(body)})
 };

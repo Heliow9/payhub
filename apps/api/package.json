@@ -1,15 +1,16 @@
 {
   "name": "@payhub/api",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "test": "vitest run",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "db:migrate": "tsx src/scripts/migrate.ts",
-    "bootstrap:master": "tsx src/scripts/bootstrap-master.ts"
+    "start:worker": "node dist/worker/main.js",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "bootstrap:master": "tsx src/db/bootstrap-master.ts"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

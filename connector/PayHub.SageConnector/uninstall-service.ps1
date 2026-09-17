@@ -1,9 +1,3 @@
-param([string]$ServiceName = "PayHub Sage Connector")
-$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-if (-not $service) {
-  Write-Host "Serviço não instalado."
-  exit 0
-}
-if ($service.Status -ne 'Stopped') { Stop-Service -Name $ServiceName -Force }
-sc.exe delete "$ServiceName" | Out-Host
-Write-Host "Serviço removido."
+$serviceName = "PayHub Sage Connector"
+$service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($service) { Stop-Service $serviceName -Force -ErrorAction SilentlyContinue; sc.exe delete "$serviceName"; Write-Host "Serviço removido." } else { Write-Host "Serviço não encontrado." }

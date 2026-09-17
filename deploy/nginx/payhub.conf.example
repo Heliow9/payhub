@@ -1,12 +1,14 @@
+# Dashboard / PWA
 server {
-    listen 80 default_server;
-    server_name _;
-
-    root /var/www/payhub/apps/dashboard/dist;
+    listen 80;
+    server_name paayhub.duckdns.org;
+    root /opt/payhub/apps/dashboard/dist;
     index index.html;
 
+    client_max_body_size 5m;
+
     location /api/ {
-        proxy_pass http://127.0.0.1:3081;
+        proxy_pass http://127.0.0.1:3081/api/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -16,5 +18,21 @@ server {
 
     location / {
         try_files $uri $uri/ /index.html;
+    }
+}
+
+# Endpoint dedicado da API / Connector
+server {
+    listen 80;
+    server_name paayhubapi.duckdns.org;
+    client_max_body_size 5m;
+
+    location / {
+        proxy_pass http://127.0.0.1:3081;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }

@@ -1,66 +1,7 @@
-import { useEffect, useState } from 'react';
-import { client, type DashboardSummary, type PayHubUser } from '../api/client';
-import { UsersPage } from './UsersPage';
-import { SageIntegrationPage } from './SageIntegrationPage';
+import { useEffect,useState } from 'react';
+import { api } from '../api/client';
+import { StatusBadge } from '../components/StatusBadge';
+import { navigate } from '../components/AppShell';
 
-type Section = 'overview' | 'sage' | 'users';
-
-export function DashboardPage({ user, csrfToken, onLogout }: { user: PayHubUser; csrfToken: string; onLogout(): Promise<void> }) {
-  const [section, setSection] = useState<Section>('overview');
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-
-  useEffect(() => {
-    client.dashboard().then(setSummary).catch(() => setSummary(null));
-  }, []);
-
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand"><div className="brand-mark small">PH</div><strong>PayHub</strong></div>
-        <nav>
-          <button className={section === 'overview' ? 'active' : ''} onClick={() => setSection('overview')}>Visão geral</button>
-          <button className={section === 'sage' ? 'active' : ''} onClick={() => setSection('sage')}>Integração Sage</button>
-          {user.role === 'MASTER' && <button className={section === 'users' ? 'active' : ''} onClick={() => setSection('users')}>Usuários</button>}
-        </nav>
-        <div className="sidebar-footer">
-          <div className="user-chip"><span>{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><small>{user.role}</small></div></div>
-          <button className="ghost-button" onClick={() => void onLogout()}>Sair</button>
-        </div>
-      </aside>
-
-      <main className="content">
-        {section === 'users' && user.role === 'MASTER' ? <UsersPage csrfToken={csrfToken} /> : section === 'sage' ? <SageIntegrationPage user={user} csrfToken={csrfToken} /> : (
-          <section>
-            <div className="page-heading">
-              <span className="eyebrow">CORE PLATFORM</span>
-              <h2>Visão geral</h2>
-              <p>Fundação operacional do PayHub e preparação das próximas etapas.</p>
-            </div>
-            <div className="hero-card">
-              <div><span className="eyebrow light">AMBIENTE</span><h3>PayHub está pronto para operar o Core.</h3><p>Autenticação, sessão segura, perfis administrativos e auditoria já fazem parte desta etapa.</p></div>
-              <span className="online-pill">● Core ativo</span>
-            </div>
-            <div className="module-grid">
-              {(summary?.modules ?? [
-                { key: 'core', label: 'Core Platform', status: 'ACTIVE' as const },
-                { key: 'sage_connector', label: 'Conector Sage (.NET 8)', status: 'ACTIVE' as const },
-                { key: 'payroll_import', label: 'Importação e normalização', status: 'PLANNED' as const },
-                { key: 'payslips', label: 'Holerites e assinaturas', status: 'PLANNED' as const },
-              ]).map((module) => (
-                <article className="module-card" key={module.key}>
-                  <div className={`module-icon ${module.status.toLowerCase()}`}>{module.status === 'ACTIVE' ? '✓' : '→'}</div>
-                  <h4>{module.label}</h4>
-                  <span>{module.status === 'ACTIVE' ? 'Ativo' : module.status === 'NEXT_STAGE' ? 'Próxima etapa' : 'Planejado'}</span>
-                </article>
-              ))}
-            </div>
-            <div className="rule-card">
-              <strong>Regra funcional preservada</strong>
-              <p>O holerite só será liberado para assinatura depois da solicitação feita pelo dashboard, quando passará ao status <b>“Assinatura solicitada”</b>.</p>
-            </div>
-          </section>
-        )}
-      </main>
-    </div>
-  );
-}
+export function DashboardPage(){const[data,setData]=useState<any>(null);const[error,setError]=useState('');const[loading,setLoading]=useState(true);async function load(){setLoading(true);try{setData(await api.dashboard());setError('');}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar dashboard.');}finally{setLoading(false);}}useEffect(()=>{void load();const id=setInterval(()=>void load(),30000);return()=>clearInterval(id);},[]);const m=data?.metrics??{};return <section><div className="page-heading row-between"><div><span className="eyebrow">CENTRAL OPERACIONAL</span><h1>Visão geral</h1><p>Acompanhe folha, assinaturas, automações e a saúde da integração em um só lugar.</p></div><button className="secondary-button" onClick={()=>void load()}>Atualizar</button></div>{error&&<div className="form-error">{error}</div>}{loading&&!data?<div className="skeleton-grid">{Array.from({length:6}).map((_,i)=><div className="skeleton card" key={i}/>)}</div>:<><div className="metric-grid"><Metric label="Funcionários ativos" value={m.employees} hint="cadastrados no PayHub" onClick={()=>navigate('employees')}/><Metric label="Grupos ativos" value={m.groups} hint="com regras de busca" onClick={()=>navigate('groups')}/><Metric label="Aguardando liberação" value={m.ready} hint="holerites prontos" tone="purple" onClick={()=>navigate('payrolls')}/><Metric label="Assinaturas pendentes" value={m.pending} hint="solicitadas / visualizadas" tone="amber" onClick={()=>navigate('payrolls')}/><Metric label="Assinados" value={m.signed} hint="documentos concluídos" tone="green" onClick={()=>navigate('payrolls')}/><Metric label="Falhas recentes" value={m.failed} hint="últimos 30 dias" tone={m.failed?'red':'green'} onClick={()=>navigate('integration')}/></div><div className="dashboard-grid"><div className="panel"><div className="panel-head"><div><span className="eyebrow">INTEGRAÇÃO</span><h3>Conector Sage</h3></div><button className="link-button" onClick={()=>navigate('integration')}>Abrir diagnóstico</button></div><div className="connector-list">{(data?.connectors??[]).length===0?<div className="empty-state">Nenhum conector cadastrado.</div>:(data.connectors as any[]).map((c)=><div className="connector-row" key={c.id}><div className="connector-icon">↔</div><div className="grow"><strong>{c.name}</strong><span>{c.machineName??'Aguardando identificação'} · última comunicação {c.lastSeenAt?new Date(c.lastSeenAt).toLocaleString('pt-BR'):'—'}</span></div><StatusBadge status={c.status}/></div>)}</div></div><div className="panel"><div className="panel-head"><div><span className="eyebrow">ATIVIDADE</span><h3>Buscas recentes</h3></div><button className="link-button" onClick={()=>navigate('groups')}>Gerenciar grupos</button></div><div className="run-list">{(data?.runs??[]).length===0?<div className="empty-state">Nenhuma busca executada.</div>:(data.runs as any[]).map((r)=><div className="run-row" key={r.id}><div><strong>{r.groupName??'Busca individual'}</strong><span>{String(r.month).padStart(2,'0')}/{r.year} · {r.source==='SCHEDULED'?'Automática':r.source==='MANUAL'?'Manual':'Individual'}</span></div><div className="run-meta"><StatusBadge status={r.status}/><span>{r.successCount??0}/{r.employeeCount??0}</span></div></div>)}</div></div></div></>}</section>}
+function Metric({label,value,hint,tone='blue',onClick}:{label:string;value:any;hint:string;tone?:string;onClick?:()=>void}){return <button className={`metric-card ${tone}`} onClick={onClick}><span className="metric-label">{label}</span><strong>{value??0}</strong><small>{hint}</small></button>}

@@ -1,0 +1,2 @@
+import type { ReactNode } from 'react';
+export function Modal({title,onClose,children,wide=false}:{title:string;onClose():void;children:ReactNode;wide?:boolean}){return <div className="modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)onClose();}}><section className={`modal ${wide?'wide':''}`}><header><div><span className="eyebrow">PAYHUB</span><h3>{title}</h3></div><button className="icon-button" onClick={onClose} aria-label="Fechar">×</button></header><div className="modal-body">{children}</div></section></div>}

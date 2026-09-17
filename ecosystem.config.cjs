@@ -2,15 +2,15 @@ module.exports = {
   apps: [
     {
       name: 'payhub-api',
-      cwd: './apps/api',
-      script: './dist/server.js',
-      instances: 1,
-      exec_mode: 'fork',
-      autorestart: true,
-      max_memory_restart: '450M',
-      env: {
-        NODE_ENV: 'production',
-      },
+      cwd: __dirname,
+      script: 'apps/api/dist/server.js',
+      env: { NODE_ENV: 'production' }
     },
-  ],
+    {
+      name: 'payhub-worker',
+      cwd: __dirname,
+      script: 'apps/api/dist/worker/main.js',
+      env: { NODE_ENV: 'production' }
+    }
+  ]
 };

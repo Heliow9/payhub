@@ -1,28 +1,13 @@
-param(
-  [string]$InstallDir = "C:\PayHub\SageConnector",
-  [string]$ServiceName = "PayHub Sage Connector"
-)
-
 $ErrorActionPreference = "Stop"
-$exe = Join-Path $InstallDir "PayHub.SageConnector.exe"
-$config = Join-Path $InstallDir "appsettings.json"
-
-if (-not (Test-Path $exe)) { throw "Executável não encontrado: $exe" }
-if (-not (Test-Path $config)) { throw "Configuração não encontrada: $config" }
-
-$existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-if ($existing) {
-  if ($existing.Status -ne 'Stopped') { Stop-Service -Name $ServiceName -Force }
-  sc.exe delete "$ServiceName" | Out-Host
-  Start-Sleep -Seconds 2
-}
-
-# Restringe o arquivo que contém o token do PayHub e a credencial SQL.
-icacls $config /inheritance:r /grant:r "*S-1-5-18:(R)" "*S-1-5-32-544:(R)" | Out-Host
-
-sc.exe create "$ServiceName" binPath= "`"$exe`"" start= auto | Out-Host
-sc.exe description "$ServiceName" "Integração somente leitura entre Sage_Gestao_Contabil e PayHub" | Out-Host
-sc.exe failure "$ServiceName" reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Host
-sc.exe start "$ServiceName" | Out-Host
-
-Write-Host "Serviço instalado. Use: sc.exe query `"$ServiceName`""
+$serviceName = "PayHub Sage Connector"
+$base = "C:\PayHub\SageConnector"
+$exe = Join-Path $base "PayHub.SageConnector.exe"
+$config = Join-Path $base "appsettings.json"
+if (!(Test-Path $exe)) { throw "Executável não encontrado: $exe" }
+if (!(Test-Path $config)) { throw "appsettings.json não encontrado: $config" }
+if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { Stop-Service $serviceName -Force -ErrorAction SilentlyContinue; sc.exe delete "$serviceName" | Out-Null; Start-Sleep -Seconds 2 }
+New-Service -Name $serviceName -BinaryPathName ('"' + $exe + '"') -DisplayName $serviceName -Description "Conector somente leitura do Sage para o PayHub" -StartupType Automatic
+sc.exe failure "$serviceName" reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
+icacls $config /inheritance:r /grant:r "SYSTEM:(R)" "Administrators:(R)" | Out-Null
+Start-Service $serviceName
+Get-Service $serviceName
