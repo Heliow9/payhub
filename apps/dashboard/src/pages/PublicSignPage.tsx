@@ -2,21 +2,22 @@ import { useEffect,useState } from 'react';
 import { api } from '../api/client';
 import { SignatureCanvas } from '../components/SignatureCanvas';
 import { PayrollDocument } from '../components/PayrollDocument';
+import { Brand,FullBrand } from '../components/Brand';
 
 function cpfMask(value:string){const d=value.replace(/\D/g,'').slice(0,11);return d.replace(/^(\d{3})(\d)/,'$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1-$2');}
 
 export function PublicSignPage({token}:{token:string}){
   const[info,setInfo]=useState<any|null>(null);const[verified,setVerified]=useState<any|null>(null);const[error,setError]=useState('');const[loading,setLoading]=useState(true);const[accepted,setAccepted]=useState(false);const[drawing,setDrawing]=useState('');const[pin,setPin]=useState('');const[cpf,setCpf]=useState('');const[birthDate,setBirthDate]=useState('');const[newPin,setNewPin]=useState('');const[confirm,setConfirm]=useState('');const[signed,setSigned]=useState<any|null>(null);const[busy,setBusy]=useState(false);
   useEffect(()=>{api.publicSignInfo(token).then(setInfo).catch((e)=>setError(e instanceof Error?e.message:'Link inválido.')).finally(()=>setLoading(false));},[token]);
-  if(loading)return <main className="public-sign-shell"><div className="public-sign-card"><div className="spinner center"/><h2>Validando link seguro…</h2></div></main>;
+  if(loading)return <main className="public-sign-shell"><div className="public-sign-card"><FullBrand className="public-loading-logo"/><div className="spinner center"/><h2>Validando link seguro…</h2></div></main>;
   if(error&&!info)return <main className="public-sign-shell"><div className="public-sign-card"><div className="error-symbol">!</div><h2>Não foi possível abrir este link</h2><p>{error}</p></div></main>;
-  if(signed)return <main className="public-sign-shell"><div className="public-sign-card success-screen"><div className="success-symbol">✓</div><span className="eyebrow">ASSINATURA CONCLUÍDA</span><h1>Holerite assinado com sucesso</h1><p>A assinatura foi registrada em {signed.signedAt}. O documento ficará disponível no portal do funcionário.</p><div className="security-note">Evidência #{signed.evidenceId} registrada com integridade criptográfica.</div></div></main>;
+  if(signed)return <main className="public-sign-shell"><div className="public-sign-card success-screen"><FullBrand className="public-success-logo"/><div className="success-symbol">✓</div><span className="eyebrow">ASSINATURA CONCLUÍDA</span><h1>Holerite assinado com sucesso</h1><p>A assinatura foi registrada em {signed.signedAt}. O documento ficará disponível no portal do funcionário.</p><div className="security-note">Evidência #{signed.evidenceId} registrada com integridade criptográfica.</div></div></main>;
 
   const requireDraw=info.signatureMode==='ACCEPT_AND_DRAW';
   async function verify(){if(!info.hasPin&&newPin!==confirm){setError('Os PINs não conferem.');return;}setBusy(true);setError('');try{const body=info.hasPin?{pin}:{cpf,birthDate,newPin};const result=await api.publicSignVerify(token,body);setVerified(result);if(!info.hasPin)setPin(newPin);}catch(e){setError(e instanceof Error?e.message:'Não foi possível confirmar sua identidade.');}finally{setBusy(false);}}
   async function sign(){if(!accepted){setError('Confirme a declaração de ciência.');return;}setBusy(true);setError('');try{setSigned(await api.publicSign(token,{pin,drawing:drawing||undefined}));}catch(e){setError(e instanceof Error?e.message:'Não foi possível assinar.');}finally{setBusy(false);}}
 
-  return <main className="public-sign-shell"><div className="public-sign-brand"><div className="brand-logo">PH</div><strong>PayHub</strong><span>Assinatura eletrônica segura</span></div><section className="public-sign-card wide-card">
+  return <main className="public-sign-shell"><div className="public-sign-brand"><Brand subtitle="Assinatura eletrônica segura"/></div><section className="public-sign-card wide-card">
     <div className="public-document-head"><div><span className="eyebrow">HOLERITE PARA ASSINATURA</span><h1>{info.employeeName}</h1><p>{info.cpfMasked}</p></div><div className="document-badge"><strong>{info.competence}</strong><span>{info.payrollTypeLabel}</span></div></div>
     <div className="expiration-note">Este link é pessoal e expira em {new Date(info.expiresAt).toLocaleString('pt-BR')}.</div>
     {!verified ? <>

@@ -1,4 +1,4 @@
-# PayHub — Etapa 3 Completa
+# PayHub — Gestão Digital de Holerites
 
 PayHub centraliza integração com Sage, cadastro de funcionários, grupos, automações de busca, holerites, portal do funcionário e assinatura eletrônica reforçada.
 
@@ -9,7 +9,7 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - **Worker:** processo Node separado em PM2 usando MySQL como orquestrador
 - **Banco:** MySQL 5.6+
 - **Sage Connector:** .NET 8 Windows Service somente leitura
-- **Android:** wrapper WebView nativo para o PWA
+- **Android:** wrapper WebView nativo para o PWA, com identidade visual PayHub
 
 ## Regras principais
 
@@ -45,6 +45,21 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - Bases de INSS, FGTS e IRRF apresentadas a partir de `ProcBase`.
 - Template documental versionado para que nova busca da competência gere o PDF atualizado.
 
+
+## Versão 0.4.0 — experiência premium, notificações e perfil Sage
+
+- Identidade visual oficial PayHub no login, carregamento, dashboard, PWA, favicon e assets Android.
+- Central de notificações persistentes para funcionários, MASTER e ANALISTA.
+- Web Push com VAPID para navegador/PWA, inclusive com a página fechada quando o sistema operacional/navegador permite.
+- Preferências de notificação por perfil e dispositivo.
+- Perfil do funcionário enriquecido com o snapshot real do Sage: dados pessoais, documentos, dados funcionais e remuneração.
+- Exclusão de funcionário exclusiva para MASTER, transacional, com limpeza de holerites/arquivos não assinados e bloqueio absoluto quando existir documento assinado.
+- Central de holerites com ações enriquecidas e modal administrativo compacto.
+- Naturezas exibidas em português e ordem oficial aprovada: vencimentos antes dos descontos, ordenados por código.
+- Correção estrutural do PDF A4 em duas vias para impedir linhas sobre textos no cabeçalho, totais e bases.
+
+> Web Push desta versão atende navegadores/PWA. O wrapper Android nativo usa o mesmo PWA e branding; push nativo independente do WebView com o aplicativo totalmente encerrado exige integração FCM e credenciais próprias.
+
 ## Instalação
 
 ```bash
@@ -59,4 +74,4 @@ pm2 save
 
 O conector Windows fica em `connector/PayHub.SageConnector`.
 
-Consulte `DEPLOY-ETAPA3.md` para o procedimento de atualização em produção.
+Para atualização da versão 0.4.0 em produção, consulte `DEPLOY-HOTFIX-0.4.0.md`.

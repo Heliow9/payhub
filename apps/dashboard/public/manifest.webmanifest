@@ -1,1 +1,15 @@
-{"name":"PayHub","short_name":"PayHub","description":"Holerites e assinaturas eletrônicas","start_url":"/","display":"standalone","background_color":"#0b1020","theme_color":"#101425","icons":[]}
+{
+  "name":"PayHub — Sistema de Gestão de Holerite",
+  "short_name":"PayHub",
+  "description":"Holerites, assinaturas eletrônicas e integração Sage.",
+  "start_url":"/",
+  "scope":"/",
+  "display":"standalone",
+  "background_color":"#f4f7fb",
+  "theme_color":"#0f2f55",
+  "icons":[
+    {"src":"/assets/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"/assets/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
+    {"src":"/assets/maskable-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"}
+  ]
+}

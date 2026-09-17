@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthProvider';
 import { clearRememberedEmail, getRememberedEmail, saveRememberedEmail } from '../auth/remember-email';
+import { FullBrand,Brand } from '../components/Brand';
 
 function cpfMask(value: string) {
   const d = value.replace(/\D/g, '').slice(0, 11);
@@ -57,13 +58,13 @@ export function LoginPage() {
 
   return <main className="login-shell">
     <section className="login-brand-panel">
-      <div className="login-brand-mark">PH</div><span className="eyebrow light">PAYHUB</span>
+      <FullBrand className="login-full-brand"/><span className="eyebrow light">GESTÃO DIGITAL DE HOLERITES</span>
       <h1>Seu holerite.<br/>Seguro, simples e rastreável.</h1>
       <p>Acesso unificado para administração e funcionários, com integração Sage e assinatura eletrônica reforçada.</p>
       <div className="login-points"><span>✓ Integridade SHA-256</span><span>✓ Auditoria completa</span><span>✓ Assinatura com PIN</span></div>
     </section>
     <section className="login-form-panel"><div className="login-card">
-      <div className="mobile-brand"><div className="brand-logo">PH</div><strong>PayHub</strong></div>
+      <div className="mobile-brand"><Brand compact/></div>
       <span className="eyebrow">ACESSO SEGURO</span><h2>{first ? 'Ative seu acesso' : 'Bem-vindo ao PayHub'}</h2>
       <p>{first ? 'Confirme sua identidade e defina o PIN que será usado nos próximos acessos.' : employeeMode ? 'Identificamos acesso de funcionário. Informe seu CPF e PIN.' : 'Entre com sua conta administrativa.'}</p>
       {!first ? <form onSubmit={submit}>

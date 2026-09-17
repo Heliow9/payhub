@@ -41,8 +41,10 @@ export class ConnectorService {
       [machineName.slice(0,190),ip,JSON.stringify(metadata??{}),connectorId]);
   }
 
-  async markOfflineStale(seconds:number):Promise<void>{
-    await this.pool.execute(`UPDATE connectors SET status='OFFLINE',updated_at=UTC_TIMESTAMP() WHERE status='ONLINE' AND last_seen_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? SECOND)`,[seconds]);
+  async markOfflineStale(seconds:number):Promise<Array<{id:number;name:string}>>{
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,name FROM connectors WHERE status='ONLINE' AND last_seen_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? SECOND)`,[seconds]);
+    if(rows.length)await this.pool.execute(`UPDATE connectors SET status='OFFLINE',updated_at=UTC_TIMESTAMP() WHERE status='ONLINE' AND last_seen_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? SECOND)`,[seconds]);
+    return rows.map((row)=>({id:Number(row.id),name:String(row.name)}));
   }
 
   async createJob(input:{requestedByUserId?:number|null;jobType:ImportJobType;scope?:Record<string,unknown>|null;payrollRunId?:number|null}):Promise<number>{

@@ -33,7 +33,14 @@ describe('PDF canônico do holerite', () => {
     expect(raw).toContain('Descontos');
     expect(raw).toContain('SALARIO NORMAL');
     expect(raw).toContain('INTEGRACAO HORA EXTRA NO DSR');
-    expect(raw).toContain('Valor Liquido');
+    expect(raw).toContain('Valor Líquido');
     expect(pdf.length).toBeGreaterThan(1000);
   });
+
+  it('não deixa a divisória dos totais atravessar o quadro de bases', () => {
+    const pdf=buildPayrollPdf({employeeName:'TESTE',cpfMasked:'***',sageCode:'1',competence:'01/2025',typeLabel:'Mensal',gross:100,deductions:10,net:90,salaryBase:100,inssBase:100,fgtsBase:100,fgtsMonth:8,irrfBase:100,irrfBracket:0,items:[{code:'1',description:'SALARIO NORMAL',reference:'30/30',amount:100,nature:'EARNING'}]});
+    const raw=pdf.toString('latin1');
+    expect(raw).not.toContain('327.00 108.00 m 327.00 25.00 l S');
+  });
+
 });

@@ -22,7 +22,10 @@ const schema = z.object({
   TSA_URL: z.string().optional().default(''),
   TSA_BEARER_TOKEN: z.string().optional().default(''),
   WORKER_POLL_SECONDS: intish(20),
-  CONNECTOR_OFFLINE_SECONDS: intish(90)
+  CONNECTOR_OFFLINE_SECONDS: intish(90),
+  VAPID_SUBJECT: z.string().optional().default(''),
+  VAPID_PUBLIC_KEY: z.string().optional().default(''),
+  VAPID_PRIVATE_KEY: z.string().optional().default('')
 });
 
 export type Env = z.infer<typeof schema>;

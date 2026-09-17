@@ -7,6 +7,7 @@ import { AuditService } from './audit.service.js';
 import { buildPayrollPdf } from './pdf.service.js';
 import { StorageService } from './storage.service.js';
 import { normalizePayrollBatches, type SourceBatch } from './normalizer.service.js';
+import { NotificationService } from './notification.service.js';
 
 
 function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
@@ -17,7 +18,7 @@ function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
 const cboAliases=['cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
 
 export class PayrollService{
-  constructor(private pool:Pool,private storage:StorageService,private audit:AuditService){}
+  constructor(private pool:Pool,private storage:StorageService,private audit:AuditService,private notifications:NotificationService){}
 
   async normalizeCompletedJob(jobId:number):Promise<{created:number;unchanged:number;skipped:number}>{
     const [jobRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,payroll_run_id payrollRunId,scope_json scopeJson,status,normalized_at normalizedAt FROM import_jobs WHERE id=? LIMIT 1`,[jobId]);
@@ -51,6 +52,7 @@ export class PayrollService{
     }
     await this.pool.execute(`UPDATE import_jobs SET normalized_at=UTC_TIMESTAMP(),updated_at=UTC_TIMESTAMP() WHERE id=?`,[jobId]);
     if(job.payrollRunId){const status=skipped>0?'PARTIAL':'COMPLETED';await this.pool.execute(`UPDATE payroll_runs SET status=?,success_count=?,failure_count=?,message=?,finished_at=UTC_TIMESTAMP() WHERE id=?`,[status,created+unchanged,skipped,`${created} novo(s), ${unchanged} sem alteração, ${skipped} ignorado(s).`,job.payrollRunId]);}
+    await this.notifications.notifyAdmins({category:'IMPORT_COMPLETED',title:'Importação de holerites concluída',body:`${created} novo(s), ${unchanged} sem alteração e ${skipped} ignorado(s).`,url:'/#/payrolls',dedupKey:`import-completed:${jobId}`});
     return{created,unchanged,skipped};
   }
 
@@ -73,7 +75,10 @@ export class PayrollService{
     await this.pool.execute(`INSERT INTO signature_requests (payroll_id,employee_id,requested_by_user_id,status,acceptance_text,acceptance_text_hash,requested_at) VALUES (?,?,?,'PENDING',?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE requested_by_user_id=VALUES(requested_by_user_id),status=IF(status='SIGNED',status,'PENDING'),acceptance_text=VALUES(acceptance_text),acceptance_text_hash=VALUES(acceptance_text_hash),requested_at=IF(status='SIGNED',requested_at,UTC_TIMESTAMP())`,[payrollId,row.employeeId,actorId,acceptanceText,hash]);
     await this.pool.execute(`UPDATE payrolls SET status=IF(status='SIGNED',status,'SIGNATURE_REQUESTED'),released_at=COALESCE(released_at,UTC_TIMESTAMP()),updated_at=UTC_TIMESTAMP() WHERE id=?`,[payrollId]);
     const [requestRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM signature_requests WHERE payroll_id=? LIMIT 1`,[payrollId]);const requestId=Number(requestRows[0]!.id);
-    await this.audit.record({actorUserId:actorId,action:'PAYROLL_SIGNATURE_REQUESTED',targetType:'PAYROLL',targetId:payrollId,meta,metadata:{signatureRequestId:requestId}});return requestId;
+    await this.audit.record({actorUserId:actorId,action:'PAYROLL_SIGNATURE_REQUESTED',targetType:'PAYROLL',targetId:payrollId,meta,metadata:{signatureRequestId:requestId}});
+    const [notifyRows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.year,p.month,p.payroll_type_label typeLabel,e.name FROM payrolls p JOIN employees e ON e.id=p.employee_id WHERE p.id=? LIMIT 1`,[payrollId]);const n=notifyRows[0];
+    await this.notifications.notifyEmployee(Number(row.employeeId),{category:'PAYROLL_AVAILABLE',title:'Novo holerite para assinatura',body:n?`${String(n.typeLabel)} de ${String(n.month).padStart(2,'0')}/${n.year} está disponível.`:'Seu holerite está disponível para assinatura.',url:'/#/employee',dedupKey:`payroll-release:${payrollId}`});
+    return requestId;
   }
 
   async markViewed(payrollId:number,employeeId:number,meta:RequestMeta):Promise<void>{await this.pool.execute(`UPDATE payrolls SET status=IF(status='SIGNATURE_REQUESTED','VIEWED',status),updated_at=UTC_TIMESTAMP() WHERE id=? AND employee_id=?`,[payrollId,employeeId]);await this.pool.execute(`INSERT INTO document_access_logs (payroll_id,actor_type,actor_id,action,ip_address,user_agent,created_at) VALUES (?,'EMPLOYEE',?,'VIEW_FULL',?,?,UTC_TIMESTAMP())`,[payrollId,employeeId,meta.ipAddress,meta.userAgent]);}

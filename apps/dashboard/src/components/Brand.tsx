@@ -1,0 +1,2 @@
+export function Brand({compact=false,subtitle}:{compact?:boolean;subtitle?:string}){return <div className={`brand ${compact?'brand-compact':''}`}><img className="brand-mark" src="/assets/payhub-mark.png" alt=""/><div><strong>PayHub</strong><span>{subtitle??'Gestão de holerites'}</span></div></div>}
+export function FullBrand({className=''}:{className?:string}){return <img className={`full-brand ${className}`} src="/assets/payhub-logo.png" alt="PayHub — Sistema de Gestão de Holerite"/>}

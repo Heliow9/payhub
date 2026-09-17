@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.PayHub" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F8FAFC</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowSplashScreenBackground">#F4F7FB</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/payhub_splash_mark</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#F4F7FB</item>
+    </style>
+</resources>

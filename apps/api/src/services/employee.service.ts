@@ -5,6 +5,8 @@ import { parseJson } from '../core/json.js';
 import type { RequestMeta } from '../core/types.js';
 import { AuditService } from './audit.service.js';
 import { ConnectorService } from './connector.service.js';
+import { StorageService } from './storage.service.js';
+import { employeeDeletionBlockReason } from './employee-delete-policy.js';
 
 export interface EmployeeLookupResult {
   sageEmployeeCode: string;
@@ -19,7 +21,7 @@ export interface EmployeeLookupResult {
 }
 
 export class EmployeeService {
-  constructor(private pool:Pool, private connector:ConnectorService, private audit:AuditService){}
+  constructor(private pool:Pool, private connector:ConnectorService, private audit:AuditService, private storage:StorageService){}
 
   async startLookup(actorId:number,cpfInput:string,meta:RequestMeta):Promise<number>{
     const cpf=normalizeCpf(cpfInput);
@@ -83,7 +85,8 @@ export class EmployeeService {
       `SELECT e.*,g.name groupName,c.activated_at activatedAt,c.last_login_at lastLoginAt,CASE WHEN c.pin_hash IS NULL THEN 0 ELSE 1 END hasPin
        FROM employees e JOIN employee_groups g ON g.id=e.group_id LEFT JOIN employee_credentials c ON c.employee_id=e.id WHERE e.id=? LIMIT 1`,[id]);
     const row=rows[0];if(!row)throw notFound('Funcionário não encontrado.');
-    return {...row,sageSnapshot:parseJson(row.sage_snapshot_json,null),sage_snapshot_json:undefined};
+    const [signedRows]=await this.pool.execute<RowDataPacket[]>(`SELECT COUNT(*) value FROM payrolls WHERE employee_id=? AND status='SIGNED'`,[id]);
+    return {...row,hasSignedPayroll:Number(signedRows[0]?.value??0)>0,sageSnapshot:parseJson(row.sage_snapshot_json,null),sage_snapshot_json:undefined};
   }
 
   async moveGroup(actorId:number,employeeId:number,toGroupId:number,meta:RequestMeta):Promise<void>{
@@ -93,6 +96,45 @@ export class EmployeeService {
     const from=Number(employee.groupId);if(from===toGroupId)return;
     const conn=await this.pool.getConnection();try{await conn.beginTransaction();await conn.execute(`UPDATE employees SET group_id=?,updated_at=UTC_TIMESTAMP() WHERE id=?`,[toGroupId,employeeId]);await conn.execute(`INSERT INTO group_membership_history (employee_id,from_group_id,to_group_id,changed_by_user_id,changed_at) VALUES (?,?,?,?,UTC_TIMESTAMP())`,[employeeId,from,toGroupId,actorId]);await conn.commit();}catch(e){await conn.rollback();throw e;}finally{conn.release();}
     await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_GROUP_CHANGED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{fromGroupId:from,toGroupId}});
+  }
+
+
+  async deleteEmployee(actorId:number,employeeId:number,meta:RequestMeta):Promise<void>{
+    const [employeeRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,name,cpf,sage_employee_code sageCode FROM employees WHERE id=? LIMIT 1`,[employeeId]);
+    const employee=employeeRows[0];if(!employee)throw notFound('Funcionário não encontrado.');
+    const [statusRows]=await this.pool.execute<RowDataPacket[]>(`SELECT status FROM payrolls WHERE employee_id=?`,[employeeId]);
+    const block=employeeDeletionBlockReason(statusRows.map((r)=>String(r.status)));
+    const [evidenceRows]=await this.pool.execute<RowDataPacket[]>(`SELECT COUNT(*) value FROM signature_evidence WHERE employee_id=?`,[employeeId]);
+    if(block||Number(evidenceRows[0]?.value??0)>0)throw conflict('Funcionário possui holerite assinado e não pode ser excluído.');
+    const [requestRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM signature_requests WHERE employee_id=?`,[employeeId]);
+    await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_DELETE_REQUESTED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{name:String(employee.name),cpfLast4:String(employee.cpf).slice(-4),sageEmployeeCode:String(employee.sageCode)}});
+    const conn=await this.pool.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [locked]=await conn.execute<RowDataPacket[]>(`SELECT id FROM employees WHERE id=? FOR UPDATE`,[employeeId]);if(!locked[0])throw notFound('Funcionário não encontrado.');
+      const [lockedStatuses]=await conn.execute<RowDataPacket[]>(`SELECT status FROM payrolls WHERE employee_id=? FOR UPDATE`,[employeeId]);
+      const lockedBlock=employeeDeletionBlockReason(lockedStatuses.map((r)=>String(r.status)));
+      const [lockedEvidence]=await conn.execute<RowDataPacket[]>(`SELECT COUNT(*) value FROM signature_evidence WHERE employee_id=?`,[employeeId]);
+      if(lockedBlock||Number(lockedEvidence[0]?.value??0)>0)throw conflict('Funcionário possui holerite assinado e não pode ser excluído.');
+      await conn.execute(`DELETE se FROM signature_events se JOIN signature_requests sr ON sr.id=se.signature_request_id WHERE sr.employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE sl FROM signature_links sl JOIN signature_requests sr ON sr.id=sl.signature_request_id WHERE sr.employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE sev FROM signature_evidence sev WHERE sev.employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE FROM signature_requests WHERE employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE dal FROM document_access_logs dal JOIN payrolls p ON p.id=dal.payroll_id WHERE p.employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE pd FROM payroll_documents pd JOIN payrolls p ON p.id=pd.payroll_id WHERE p.employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE pi FROM payroll_items pi JOIN payrolls p ON p.id=pi.payroll_id WHERE p.employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE FROM payrolls WHERE employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE FROM employee_sessions WHERE employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE FROM employee_credentials WHERE employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE FROM group_membership_history WHERE employee_id=?`,[employeeId]);
+      await conn.execute(`DELETE FROM push_subscriptions WHERE principal_type='EMPLOYEE' AND principal_id=?`,[employeeId]);
+      await conn.execute(`DELETE FROM push_preferences WHERE principal_type='EMPLOYEE' AND principal_id=?`,[employeeId]);
+      await conn.execute(`DELETE FROM notifications WHERE recipient_type='EMPLOYEE' AND recipient_id=?`,[employeeId]);
+      await conn.execute(`DELETE FROM employees WHERE id=?`,[employeeId]);
+      await conn.commit();
+    }catch(error){await conn.rollback();throw error;}finally{conn.release();}
+    await Promise.allSettled([this.storage.removeTree(`payrolls/${employeeId}`),...requestRows.map((r)=>this.storage.removeTree(`signatures/${Number(r.id)}`))]);
+    await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_DELETED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{name:String(employee.name),cpfLast4:String(employee.cpf).slice(-4),sageEmployeeCode:String(employee.sageCode)}});
   }
 
   async setStatus(actorId:number,employeeId:number,status:'ACTIVE'|'DISABLED'|'TERMINATED',meta:RequestMeta):Promise<void>{
