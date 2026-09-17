@@ -87,3 +87,19 @@ Para atualização da versão 0.4.0 em produção, consulte `DEPLOY-HOTFIX-0.4.0
 - Connector Sage 3.1.1 (hotfix de valores pt-BR e EventoGVigencia).
 
 Consulte `DEPLOY-HOTFIX-0.4.1.md` para atualização.
+
+## Versão 0.4.2 — login unificado, evidências reforçadas e exportação em lote
+
+- Login único com orientação clara para administrador (e-mail + senha) e funcionário (CPF + PIN).
+- `GET /api/auth/me` sem sessão passa a responder estado anônimo, evitando 401 desnecessário na tela de login.
+- Rate limit separado entre login e primeiro acesso, com mensagem amigável e sem contar acessos bem-sucedidos.
+- Identidade visual do login refeita com símbolo PayHub nítido, wordmark em CSS e animações leves.
+- PDF assinado mantém a declaração eletrônica na lateral direita, em linha vertical, sem inserir a assinatura desenhada no documento.
+- Assinatura desenhada permanece preservada apenas como evidência administrativa.
+- Pacote de evidências registra IP do servidor, User-Agent, dispositivo, sistema, navegador/app, tela, idioma, fuso horário e localização quando disponível.
+- PWA coleta geolocalização pela API do navegador no ato da assinatura; quando a plataforma exigir, apenas o prompt nativo do sistema/navegador poderá aparecer.
+- Android nativo habilita localização no WebView, solicita a permissão do sistema operacional e expõe marca, fabricante, modelo, versão Android, arquitetura e versão do app para a evidência.
+- Coordenadas podem ser convertidas em endereço aproximado por geocodificação reversa configurável.
+- O aceite informa de forma expressa quais informações técnicas e de localização compõem a evidência da assinatura.
+- Dashboard administrativo exibe dispositivo, IP, localização, endereço aproximado, hashes e permite exportar o comprovante de evidências.
+- Central de holerites permite exportar até 200 documentos selecionados em um único ZIP; usa o PDF assinado quando existir e o original nos demais casos, além de gerar `manifesto.csv` com SHA-256.

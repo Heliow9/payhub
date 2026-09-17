@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { SignatureCanvas } from '../components/SignatureCanvas';
 import { PayrollDocument } from '../components/PayrollDocument';
 import { Brand,FullBrand } from '../components/Brand';
+import { collectSignatureClientEvidence } from '../signature-evidence';
 
 function cpfMask(value:string){const d=value.replace(/\D/g,'').slice(0,11);return d.replace(/^(\d{3})(\d)/,'$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1-$2');}
 
@@ -15,7 +16,7 @@ export function PublicSignPage({token}:{token:string}){
 
   const requireDraw=info.signatureMode==='ACCEPT_AND_DRAW';
   async function verify(){if(!info.hasPin&&newPin!==confirm){setError('Os PINs não conferem.');return;}setBusy(true);setError('');try{const body=info.hasPin?{pin}:{cpf,birthDate,newPin};const result=await api.publicSignVerify(token,body);setVerified(result);if(!info.hasPin)setPin(newPin);}catch(e){setError(e instanceof Error?e.message:'Não foi possível confirmar sua identidade.');}finally{setBusy(false);}}
-  async function sign(){if(!accepted){setError('Confirme a declaração de ciência.');return;}setBusy(true);setError('');try{setSigned(await api.publicSign(token,{pin,drawing:drawing||undefined}));}catch(e){setError(e instanceof Error?e.message:'Não foi possível assinar.');}finally{setBusy(false);}}
+  async function sign(){if(!accepted){setError('Confirme a declaração de ciência.');return;}setBusy(true);setError('');try{const clientEvidence=await collectSignatureClientEvidence();setSigned(await api.publicSign(token,{pin,drawing:drawing||undefined,clientEvidence}));}catch(e){setError(e instanceof Error?e.message:'Não foi possível assinar.');}finally{setBusy(false);}}
 
   return <main className="public-sign-shell"><div className="public-sign-brand"><Brand subtitle="Assinatura eletrônica segura"/></div><section className="public-sign-card wide-card">
     <div className="public-document-head"><div><span className="eyebrow">HOLERITE PARA ASSINATURA</span><h1>{info.employeeName}</h1><p>{info.cpfMasked}</p></div><div className="document-badge"><strong>{info.competence}</strong><span>{info.payrollTypeLabel}</span></div></div>
@@ -27,7 +28,7 @@ export function PublicSignPage({token}:{token:string}){
       <PayrollDocument data={verified.payroll}/>
       <div className="acceptance-box"><label className="accept-check"><input type="checkbox" checked={accepted} onChange={(e)=>setAccepted(e.target.checked)}/><span>{info.acceptanceText}</span></label></div>
       {requireDraw&&<div className="form-section"><span className="label strong">Assinatura manuscrita em tela</span><SignatureCanvas onChange={setDrawing}/></div>}
-      <div className="signature-security"><span>🔒</span><p>A assinatura registra credencial validada, data/hora, IP, dispositivo, hash SHA-256 do PDF e envelope criptográfico de evidências.</p></div>
+      <div className="signature-security"><span>🔒</span><p>A assinatura registra credencial validada, data/hora, IP, informações do dispositivo e navegador/app, hash SHA-256 do PDF e, quando o dispositivo permitir, localização geográfica com precisão e endereço aproximado.</p></div>
       {error&&<div className="form-error">{error}</div>}<button className="primary-button large" disabled={busy||!accepted||(requireDraw&&!drawing)} onClick={()=>void sign()}>{busy?'Registrando assinatura…':'Assinar holerite'}</button>
     </>}
   </section></main>;

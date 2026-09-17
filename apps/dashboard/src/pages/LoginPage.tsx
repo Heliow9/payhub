@@ -65,13 +65,14 @@ export function LoginPage() {
     </section>
     <section className="login-form-panel"><div className="login-card">
       <div className="mobile-brand"><Brand compact/></div>
-      <span className="eyebrow">ACESSO SEGURO</span><h2>{first ? 'Ative seu acesso' : 'Bem-vindo ao PayHub'}</h2>
-      <p>{first ? 'Confirme sua identidade e defina o PIN que será usado nos próximos acessos.' : employeeMode ? 'Identificamos acesso de funcionário. Informe seu CPF e PIN.' : 'Entre com sua conta administrativa.'}</p>
+      <span className="eyebrow">ACESSO ÚNICO</span><h2>{first ? 'Ative seu acesso' : 'Bem-vindo ao PayHub'}</h2>
+      <p>{first ? 'Confirme sua identidade e defina o PIN que será usado nos próximos acessos.' : employeeMode ? 'Acesso de funcionário identificado: informe seu CPF e PIN de 6 dígitos.' : 'Use o mesmo acesso para administração e funcionários. Administradores entram com e-mail e senha; funcionários entram com CPF e PIN.'}</p>
+      {!first&&<div className="login-access-hints"><span><b>Administrativo</b>E-mail + senha</span><span><b>Funcionário</b>CPF + PIN</span></div>}
       {!first ? <form onSubmit={submit}>
-        <label>{employeeMode ? 'CPF' : 'E-mail'}
+        <label>{employeeMode ? 'CPF' : 'E-mail ou CPF'}
           <input inputMode={employeeMode ? 'numeric' : 'email'} autoComplete="username" value={identifier}
             onChange={(e) => { const v=e.target.value; if (/^\d/.test(v) || employeeMode) setIdentifier(cpfMask(v)); else setIdentifier(v); }}
-            placeholder={employeeMode ? '000.000.000-00' : 'nome@empresa.com.br'} required/>
+            placeholder={employeeMode ? '000.000.000-00' : 'nome@empresa.com.br ou CPF'} required/>
         </label>
         <label>{employeeMode ? 'PIN de 6 dígitos' : 'Senha'}
           <input type="password" inputMode={employeeMode ? 'numeric' : undefined} maxLength={employeeMode ? 6 : 128} autoComplete="current-password" value={password}

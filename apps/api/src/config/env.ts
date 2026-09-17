@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const boolish = z.string().optional().transform((value) => value === 'true' || value === '1');
+const boolishDefault = (fallback:boolean) => z.string().optional().transform((value) => value == null ? fallback : value === 'true' || value === '1');
 const intish = (fallback: number) => z.string().optional().transform((value) => value ? Number.parseInt(value, 10) : fallback);
 
 const schema = z.object({
@@ -25,7 +26,9 @@ const schema = z.object({
   CONNECTOR_OFFLINE_SECONDS: intish(90),
   VAPID_SUBJECT: z.string().optional().default(''),
   VAPID_PUBLIC_KEY: z.string().optional().default(''),
-  VAPID_PRIVATE_KEY: z.string().optional().default('')
+  VAPID_PRIVATE_KEY: z.string().optional().default(''),
+  REVERSE_GEOCODING_ENABLED: boolishDefault(true),
+  REVERSE_GEOCODING_URL: z.string().url().default('https://nominatim.openstreetmap.org/reverse')
 });
 
 export type Env = z.infer<typeof schema>;

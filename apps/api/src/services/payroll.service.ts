@@ -8,6 +8,7 @@ import { buildPayrollPdf } from './pdf.service.js';
 import { StorageService } from './storage.service.js';
 import { normalizePayrollBatches, type SourceBatch } from './normalizer.service.js';
 import { NotificationService } from './notification.service.js';
+import { withSignatureEvidenceDisclosure } from './signature-disclosure.js';
 
 
 function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
@@ -16,6 +17,9 @@ function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
   return null;
 }
 const cboAliases=['cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
+
+function exportFileSafe(value:string):string{return value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9._-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,90)||'HOLERITE';}
+export type PayrollExportEntry={payrollId:number;employeeName:string;competence:string;typeLabel:string;status:string;documentKind:'ASSINADO'|'ORIGINAL';sha256:string;filename:string;buffer:Buffer};
 
 export class PayrollService{
   constructor(private pool:Pool,private storage:StorageService,private audit:AuditService,private notifications:NotificationService){}
@@ -66,12 +70,13 @@ export class PayrollService{
   async detail(payrollId:number,employeeId?:number):Promise<Record<string,unknown>>{
     const params:number[]=[payrollId];let employeeClause='';if(employeeId){employeeClause=' AND p.employee_id=? AND p.status IN (\'SIGNATURE_REQUESTED\',\'VIEWED\',\'SIGNED\')';params.push(employeeId);}
     const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.*,e.name employeeName,e.cpf,e.sage_employee_code sageCode,e.job_title jobTitle,DATE_FORMAT(e.admission_date,'%Y-%m-%d') admissionDate,e.sage_snapshot_json sageSnapshotJson,g.name groupName,d.original_sha256 originalSha256,d.signed_sha256 signedSha256,d.receipt_sha256 receiptSha256,sr.id signatureRequestId,sr.status signatureStatus,sr.acceptance_text acceptanceText,aset.signature_mode signatureMode FROM payrolls p JOIN employees e ON e.id=p.employee_id JOIN employee_groups g ON g.id=e.group_id LEFT JOIN payroll_documents d ON d.payroll_id=p.id LEFT JOIN signature_requests sr ON sr.payroll_id=p.id LEFT JOIN app_settings aset ON aset.id=1 WHERE p.id=? ${employeeClause} LIMIT 1`,params);const row=rows[0];if(!row)throw notFound('Holerite não encontrado.');const cbo=sageSnapshotValue(row.sageSnapshotJson,cboAliases);delete row.sageSnapshotJson;
+    if(row.acceptanceText)row.acceptanceText=withSignatureEvidenceDisclosure(String(row.acceptanceText));
     const [items]=await this.pool.execute<RowDataPacket[]>(`SELECT event_code eventCode,description,reference_value referenceValue,amount,nature,sort_order sortOrder FROM payroll_items WHERE payroll_id=? ORDER BY sort_order,id`,[payrollId]);return{...row,cbo,summary:parseJson(row.summary_json,{}),summary_json:undefined,rawReference:parseJson(row.raw_reference_json,{}),raw_reference_json:undefined,items};
   }
 
   async release(actorId:number,payrollId:number,acceptanceText:string,meta:RequestMeta):Promise<number>{
     const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT employee_id employeeId,status FROM payrolls WHERE id=? AND is_current=1 LIMIT 1`,[payrollId]);const row=rows[0];if(!row)throw notFound('Holerite não encontrado.');if(!['READY','SIGNATURE_REQUESTED','VIEWED'].includes(String(row.status)))throw badRequest('Este holerite não pode ser liberado neste status.');
-    const {sha256}=await import('../core/security.js');const hash=sha256(acceptanceText);
+    acceptanceText=withSignatureEvidenceDisclosure(acceptanceText);const {sha256}=await import('../core/security.js');const hash=sha256(acceptanceText);
     await this.pool.execute(`INSERT INTO signature_requests (payroll_id,employee_id,requested_by_user_id,status,acceptance_text,acceptance_text_hash,requested_at) VALUES (?,?,?,'PENDING',?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE requested_by_user_id=VALUES(requested_by_user_id),status=IF(status='SIGNED',status,'PENDING'),acceptance_text=VALUES(acceptance_text),acceptance_text_hash=VALUES(acceptance_text_hash),requested_at=IF(status='SIGNED',requested_at,UTC_TIMESTAMP())`,[payrollId,row.employeeId,actorId,acceptanceText,hash]);
     await this.pool.execute(`UPDATE payrolls SET status=IF(status='SIGNED',status,'SIGNATURE_REQUESTED'),released_at=COALESCE(released_at,UTC_TIMESTAMP()),updated_at=UTC_TIMESTAMP() WHERE id=?`,[payrollId]);
     const [requestRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM signature_requests WHERE payroll_id=? LIMIT 1`,[payrollId]);const requestId=Number(requestRows[0]!.id);
@@ -84,5 +89,19 @@ export class PayrollService{
   async markViewed(payrollId:number,employeeId:number,meta:RequestMeta):Promise<void>{await this.pool.execute(`UPDATE payrolls SET status=IF(status='SIGNATURE_REQUESTED','VIEWED',status),updated_at=UTC_TIMESTAMP() WHERE id=? AND employee_id=?`,[payrollId,employeeId]);await this.pool.execute(`INSERT INTO document_access_logs (payroll_id,actor_type,actor_id,action,ip_address,user_agent,created_at) VALUES (?,'EMPLOYEE',?,'VIEW_FULL',?,?,UTC_TIMESTAMP())`,[payrollId,employeeId,meta.ipAddress,meta.userAgent]);}
 
   async originalDocument(payrollId:number):Promise<{buffer:Buffer;filename:string}>{const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT d.original_path path,p.year,p.month,p.payroll_type payrollType FROM payroll_documents d JOIN payrolls p ON p.id=d.payroll_id WHERE d.payroll_id=? LIMIT 1`,[payrollId]);const row=rows[0];if(!row)throw notFound('Documento não encontrado.');return{buffer:await this.storage.read(String(row.path)),filename:`holerite-${row.year}-${String(row.month).padStart(2,'0')}-tipo-${row.payrollType}.pdf`};}
+
+  async adminDocument(payrollId:number):Promise<{buffer:Buffer;filename:string;kind:'ASSINADO'|'ORIGINAL'}>{
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.status,p.year,p.month,p.payroll_type payrollType,e.name employeeName,d.original_path originalPath,d.original_sha256 originalSha,d.signed_path signedPath,d.signed_sha256 signedSha FROM payrolls p JOIN employees e ON e.id=p.employee_id JOIN payroll_documents d ON d.payroll_id=p.id WHERE p.id=? LIMIT 1`,[payrollId]);
+    const row=rows[0];if(!row)throw notFound('Documento não encontrado.');const signed=Boolean(row.signedPath);const path=String(signed?row.signedPath:row.originalPath);const kind=signed?'ASSINADO':'ORIGINAL';const name=exportFileSafe(String(row.employeeName));return{buffer:await this.storage.read(path),filename:`${name}_${row.year}-${String(row.month).padStart(2,'0')}_TIPO-${row.payrollType}_${kind}.pdf`,kind};
+  }
+
+  async exportDocuments(payrollIds:number[],actorId:number,meta:RequestMeta):Promise<PayrollExportEntry[]>{
+    const ids=[...new Set(payrollIds.filter((id)=>Number.isInteger(id)&&id>0))];if(ids.length===0)throw badRequest('Selecione ao menos um holerite.');if(ids.length>200)throw badRequest('A exportação permite até 200 holerites por vez.');
+    const placeholders=ids.map(()=>'?').join(',');const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.status,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label typeLabel,e.name employeeName,d.original_path originalPath,d.original_sha256 originalSha,d.signed_path signedPath,d.signed_sha256 signedSha FROM payrolls p JOIN employees e ON e.id=p.employee_id JOIN payroll_documents d ON d.payroll_id=p.id WHERE p.id IN (${placeholders}) AND p.is_current=1 ORDER BY e.name,p.year,p.month,p.payroll_type`,ids);
+    if(rows.length!==ids.length)throw badRequest('Um ou mais holerites selecionados não estão disponíveis para exportação.');
+    const entries:PayrollExportEntry[]=[];for(const row of rows){const signed=Boolean(row.signedPath);const kind=signed?'ASSINADO':'ORIGINAL';const path=String(signed?row.signedPath:row.originalPath);const sha=String(signed?row.signedSha:row.originalSha);const competence=`${String(row.month).padStart(2,'0')}/${row.year}`;const filename=`${exportFileSafe(String(row.employeeName))}_${row.year}-${String(row.month).padStart(2,'0')}_${exportFileSafe(String(row.typeLabel))}_${kind}.pdf`;entries.push({payrollId:Number(row.id),employeeName:String(row.employeeName),competence,typeLabel:String(row.typeLabel),status:String(row.status),documentKind:kind,sha256:sha,filename,buffer:await this.storage.read(path)});await this.pool.execute(`INSERT INTO document_access_logs (payroll_id,actor_type,actor_id,action,ip_address,user_agent,created_at) VALUES (?,'USER',?,'BULK_EXPORT',?,?,UTC_TIMESTAMP())`,[Number(row.id),actorId,meta.ipAddress,meta.userAgent]);}
+    return entries;
+  }
+
   async employeeDownload(payrollId:number,employeeId:number,meta:RequestMeta):Promise<{buffer:Buffer;filename:string}>{const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT d.signed_path path,p.year,p.month,p.payroll_type payrollType FROM payroll_documents d JOIN payrolls p ON p.id=d.payroll_id WHERE d.payroll_id=? AND p.employee_id=? AND p.status='SIGNED' LIMIT 1`,[payrollId,employeeId]);const row=rows[0];if(!row||!row.path)throw badRequest('O download é liberado somente após a assinatura.');await this.pool.execute(`INSERT INTO document_access_logs (payroll_id,actor_type,actor_id,action,ip_address,user_agent,created_at) VALUES (?,'EMPLOYEE',?,'DOWNLOAD',?,?,UTC_TIMESTAMP())`,[payrollId,employeeId,meta.ipAddress,meta.userAgent]);return{buffer:await this.storage.read(String(row.path)),filename:`holerite-assinado-${row.year}-${String(row.month).padStart(2,'0')}.pdf`};}
 }

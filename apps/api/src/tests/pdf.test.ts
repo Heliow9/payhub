@@ -44,12 +44,14 @@ describe('PDF canônico do holerite', () => {
   });
 
   it('mantém o texto completo da assinatura eletrônica nas duas vias',()=>{
-    const acceptance='Declaro que visualizei o holerite referente à competência informada, conferi seu conteúdo e manifesto eletronicamente minha ciência e recebimento deste documento.';
+    const acceptance='Declaro que visualizei o holerite referente à competência informada, conferi seu conteúdo e manifesto eletronicamente minha ciência e recebimento deste documento. Estou ciente de que o PayHub registra endereço IP, informações técnicas do dispositivo e, quando o dispositivo permitir, localização geográfica com endereço aproximado.';
     const pdf=buildPayrollPdf({employeeName:'HELIO ADRIANO',cpfMasked:'***',sageCode:'4301',competence:'02/2025',typeLabel:'Mensal',gross:2550.77,deductions:634.18,net:1916.59,items:[{code:'1',description:'SALARIO NORMAL',reference:'30/30',amount:2134.06,nature:'EARNING'}],signatureInfo:{signedAt:'17/09/2026 10:50:18 BRT',acceptanceText:acceptance}});
     const raw=pdf.toString('latin1');
     expect((raw.match(/DECLARO TER RECEBIDO A IMPORTÂNCIA LÍQUIDA DISCRIMINADA NESTE RECIBO/g)??[])).toHaveLength(2);
     expect((raw.match(/Assinado eletronicamente em 17\/09\/2026 10:50:18 BRT\./g)??[])).toHaveLength(2);
-    expect((raw.match(/Declaro que visualizei o holerite referente à competência informada, conferi seu conteúdo e manifesto eletronicamente minha ciência e recebimento deste documento\./g)??[])).toHaveLength(2);
+    expect((raw.match(/Declaro que visualizei o holerite referente à competência informada/g)??[])).toHaveLength(2);
+    expect(raw).not.toContain('ASSINATURA DO FUNCIONÁRIO');
+    expect(raw).not.toContain('(DATA)');
   });
 
 });

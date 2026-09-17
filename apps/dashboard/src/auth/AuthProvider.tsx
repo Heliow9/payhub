@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, setCsrfToken, type Principal } from '../api/client';
-import { reconcileSession } from './session-reconcile';
 
 type AuthContextValue = {
   principal: Principal | null;
@@ -21,7 +20,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const current = await api.me();
       setCsrfToken(current.csrfToken);
       setPrincipal(current.principal);
-      return true;
+      return Boolean(current.principal);
     } catch {
       setCsrfToken('');
       return false;
@@ -38,12 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     principal,
     loading,
     async login(identifier, password) {
-      // Uma sessão HttpOnly válida é a fonte de verdade. Antes de autenticar
-      // novamente, reconciliamos a sessão para evitar falso erro de credenciais.
-      const result = await reconcileSession(
-        () => api.me(),
-        () => api.login(identifier, password)
-      );
+      const result = await api.login(identifier, password);
       setCsrfToken(result.csrfToken);
       setPrincipal(result.principal);
     },
