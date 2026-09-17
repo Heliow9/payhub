@@ -45,3 +45,12 @@ export function brTimestamp(date = new Date()): string {
   const p = brasiliaParts(date);
   return `${String(p.day).padStart(2, '0')}/${String(p.month).padStart(2, '0')}/${p.year} ${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}:${String(p.second).padStart(2, '0')} BRT`;
 }
+
+export function normalizeManualCompetency(input: { year: number; month: number }): { year: number; month: number } {
+  const year = Number(input.year);
+  const month = Number(input.month);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('Ano da competência inválido.');
+  if (!Number.isInteger(month) || month < 1 || month > 12) throw new Error('Mês da competência inválido.');
+  return { year, month };
+}
+
