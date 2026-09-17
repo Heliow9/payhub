@@ -1,8 +1,10 @@
 {
   "name": "payhub",
   "private": true,
-  "version": "0.3.0",
-  "workspaces": ["apps/*"],
+  "version": "0.3.1",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace @payhub/api & npm run dev --workspace @payhub/dashboard",
     "test": "npm run test --workspaces --if-present",
@@ -12,5 +14,7 @@
     "start:api": "npm run start --workspace @payhub/api",
     "start:worker": "npm run start:worker --workspace @payhub/api"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }

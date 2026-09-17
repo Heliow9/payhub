@@ -129,7 +129,7 @@ export class ConnectorService {
   }
 
   async rawRows(jobId:number,sourceTable?:string):Promise<unknown[]>{
-    const params:unknown[]=[jobId];
+    const params:Array<number|string>=[jobId];
     let sql=`SELECT payload_json payload FROM connector_raw_batches WHERE job_id=?`;
     if(sourceTable){sql+=` AND source_table=?`;params.push(sourceTable);}
     sql+=` ORDER BY source_table,batch_number`;

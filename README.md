@@ -25,6 +25,15 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - Download pelo funcionário só após assinatura.
 - Assinatura reforçada: hash SHA-256 do PDF, identidade, timestamp, IP, User-Agent, sessão, aceite, desenho opcional, cadeia de eventos e selo HMAC. TSA externo pode ser configurado.
 
+
+## Versão 0.3.1 — correções de autenticação
+
+- Compatibilidade com hashes scrypt hexadecimais criados pela Etapa 2, com upgrade automático após login válido.
+- Restauração de sessão e renovação de CSRF no `GET /api/auth/me`.
+- Reconciliação da sessão HttpOnly antes de uma nova tentativa de login, evitando falso erro de credenciais quando a sessão existente ainda é válida.
+- Opção **Lembrar e-mail neste dispositivo** no acesso administrativo. Somente o e-mail é armazenado; senha e PIN nunca são persistidos no navegador.
+- Correções de tipagem TypeScript já aplicadas em `connector.service.ts`, `payroll.service.ts` e `AppShell.tsx`.
+
 ## Instalação
 
 ```bash

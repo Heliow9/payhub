@@ -3,14 +3,14 @@
 ## Lightsail
 
 ```bash
-cd /opt/payhub
+cd /var/www/payhub
 # substitua os arquivos pelo conteúdo desta versão
 npm install
 npm test
 npm run build
 npm run db:migrate
-mkdir -p /opt/payhub/storage
-chmod 700 /opt/payhub/storage
+mkdir -p /var/www/payhub/storage
+chmod 700 /var/www/payhub/storage
 pm2 startOrReload ecosystem.config.cjs
 pm2 save
 sudo nginx -t

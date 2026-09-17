@@ -8,7 +8,7 @@ export function setCsrfToken(value:string){csrfToken=value;if(value)sessionStora
 async function request<T>(path:string,options:RequestInit={}):Promise<T>{const headers=new Headers(options.headers);if(options.body&&!headers.has('content-type'))headers.set('content-type','application/json');if(options.method&&options.method!=='GET'&&options.method!=='HEAD'&&csrfToken)headers.set('x-csrf-token',csrfToken);const response=await fetch(path,{...options,headers,credentials:'include'});if(response.status===204)return undefined as T;const contentType=response.headers.get('content-type')??'';if(!response.ok){let payload:any={};if(contentType.includes('application/json'))payload=await response.json().catch(()=>({}));throw new ApiError(payload.error??`Erro HTTP ${response.status}`,response.status,payload.code,payload.details);}return contentType.includes('application/json')?response.json():response.text() as T;}
 const json=(value:unknown)=>JSON.stringify(value);
 export const api={
-  me:()=>request<{principal:Principal}>('/api/auth/me'),
+  me:()=>request<{principal:Principal;csrfToken:string}>('/api/auth/me'),
   login:(identifier:string,password:string)=>request<{principal:Principal;csrfToken:string}>('/api/auth/login',{method:'POST',body:json({identifier,password})}),
   firstAccess:(cpf:string,birthDate:string,pin:string)=>request<{principal:Principal;csrfToken:string}>('/api/auth/employee-first-access',{method:'POST',body:json({cpf,birthDate,pin})}),
   logout:()=>request<void>('/api/auth/logout',{method:'POST'}),

@@ -1,7 +1,7 @@
 import type { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import type { Env } from '../config/env.js';
 import { badRequest, forbidden, notFound, unauthorized } from '../core/errors.js';
-import { hashSecret, isSixDigitPin, isValidCpf, normalizeCpf, randomToken, sha256, verifySecret } from '../core/security.js';
+import { hashSecret, isSixDigitPin, isValidCpf, needsSecretRehash, normalizeCpf, randomToken, sha256, verifySecret } from '../core/security.js';
 import type { Principal, RequestMeta } from '../core/types.js';
 import { AuditService } from './audit.service.js';
 
@@ -39,6 +39,9 @@ export class AuthService {
     const [rows] = await this.pool.execute<RowDataPacket[]>(`SELECT id, name, email, password_hash, role, status FROM users WHERE email = ? LIMIT 1`, [email]);
     const row = rows[0];
     if (!row || row.status !== 'ACTIVE' || !(await verifySecret(password, row.password_hash as string))) throw unauthorized();
+    if (needsSecretRehash(String(row.password_hash))) {
+      await this.pool.execute(`UPDATE users SET password_hash=?,updated_at=UTC_TIMESTAMP() WHERE id=?`, [await hashSecret(password), row.id]);
+    }
     const session = await this.makeAdminSession(Number(row.id), meta);
     return { principal: { kind: 'USER', id: Number(row.id), name: String(row.name), email: String(row.email), role: row.role, status: row.status }, ...session };
   }
@@ -117,6 +120,18 @@ export class AuthService {
       return { principal: { kind:'EMPLOYEE', id:Number(employee.id), name:String(employee.name), cpf:String(employee.cpf), status:employee.status }, tokenHash, csrfHash:String(employee.csrfHash) };
     }
     return null;
+  }
+
+  async refreshCsrf(tokenHash: string | undefined, principal: Principal | undefined): Promise<string> {
+    if (!tokenHash || !principal) throw unauthorized('Autenticação necessária.');
+    const csrfToken = randomToken(24);
+    const csrfHash = sha256(csrfToken);
+    const table = principal.kind === 'USER' ? 'sessions' : 'employee_sessions';
+    await this.pool.execute(
+      `UPDATE ${table} SET csrf_token_hash=?,last_seen_at=UTC_TIMESTAMP() WHERE token_hash=? AND revoked_at IS NULL`,
+      [csrfHash, tokenHash]
+    );
+    return csrfToken;
   }
 
   async logout(tokenHash: string | undefined, principal: Principal | undefined, meta: RequestMeta): Promise<void> {

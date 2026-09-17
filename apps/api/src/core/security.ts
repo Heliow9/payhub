@@ -21,14 +21,29 @@ export async function hashSecret(secret: string): Promise<string> {
   return `scrypt$${salt.toString('base64url')}$${derived.toString('base64url')}`;
 }
 
+function isLegacyHexScrypt(encoded: string): boolean {
+  const [kind, saltRaw, hashRaw] = encoded.split('$');
+  return kind === 'scrypt' && /^[0-9a-f]{32}$/i.test(saltRaw ?? '') && /^[0-9a-f]{128}$/i.test(hashRaw ?? '');
+}
+
+export function needsSecretRehash(encoded: string | null | undefined): boolean {
+  return Boolean(encoded && isLegacyHexScrypt(encoded));
+}
+
 export async function verifySecret(secret: string, encoded: string | null | undefined): Promise<boolean> {
   if (!encoded) return false;
   const [kind, saltRaw, hashRaw] = encoded.split('$');
   if (kind !== 'scrypt' || !saltRaw || !hashRaw) return false;
-  const salt = Buffer.from(saltRaw, 'base64url');
-  const expected = Buffer.from(hashRaw, 'base64url');
-  const actual = (await scrypt(secret, salt, expected.length)) as Buffer;
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  try {
+    const legacy = isLegacyHexScrypt(encoded);
+    const salt = Buffer.from(saltRaw, legacy ? 'hex' : 'base64url');
+    const expected = Buffer.from(hashRaw, legacy ? 'hex' : 'base64url');
+    if (!salt.length || !expected.length) return false;
+    const actual = (await scrypt(secret, salt, expected.length)) as Buffer;
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
 }
 
 export function normalizeCpf(value: string): string {
