@@ -103,3 +103,13 @@ Consulte `DEPLOY-HOTFIX-0.4.1.md` para atualização.
 - O aceite informa de forma expressa quais informações técnicas e de localização compõem a evidência da assinatura.
 - Dashboard administrativo exibe dispositivo, IP, localização, endereço aproximado, hashes e permite exportar o comprovante de evidências.
 - Central de holerites permite exportar até 200 documentos selecionados em um único ZIP; usa o PDF assinado quando existir e o original nos demais casos, além de gerar `manifesto.csv` com SHA-256.
+
+## Versão 0.4.3 — hotfix de exportação de PDFs
+
+- Corrige o erro interno na exportação em lote de holerites selecionados.
+- Mantém o log de acesso compatível com o enum atual do banco, registrando os documentos exportados como `DOWNLOAD`.
+- Remove dos novos holerites a observação sobre geração a partir dos dados recebidos do Sage.
+- Em PDFs originais antigos e ainda não assinados, a observação é removida automaticamente no primeiro download/exportação, com atualização do SHA-256.
+- PDFs já assinados permanecem imutáveis para preservar as evidências de assinatura.
+
+Consulte `DEPLOY-HOTFIX-0.4.3.md` para atualização.

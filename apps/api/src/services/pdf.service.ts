@@ -30,7 +30,6 @@ export interface PdfPayrollInput{
   irrfBase?:number|null;
   irrfBracket?:number|null;
   items:Array<{code:string;description:string;reference?:string|null;amount:number;nature:string}>;
-  footer?:string[];
   signatureInfo?:{signedAt:string;acceptanceText:string};
 }
 
@@ -70,7 +69,6 @@ function drawReceipt(input:PdfPayrollInput,y0:number):string[]{
   c.push(line(x0,tableHeadBottom,mainRight,tableHeadBottom));
   const items=input.items.slice(0,12);const available=Math.max(72,tableHeadBottom-bodyBottom-8);const rowStep=Math.min(13.5,Math.max(8.6,available/Math.max(items.length,1)));const rowFont=rowStep<10?5.6:6.6;let y=tableHeadBottom-rowStep;
   for(const item of items){c.push(text(x0+4,y,eventCode(item.code),rowFont),text(xCode+4,y,fit(item.description,rowStep<10?49:45),rowFont),textCenter(xDesc,y,xRef-xDesc,item.reference??'—',rowFont),textRight(xVenc-7,y,amount(item,'EARNING'),rowFont+.2),textRight(mainRight-7,y,amount(item,'DEDUCTION'),rowFont+.2));y-=rowStep;}
-  if(!input.signatureInfo&&input.footer?.length){const note=fit(input.footer.join(' | '),135);c.push(text(xCode+4,bodyBottom+4,note,4.6));}
   c.push(line(x0,totalsTop,mainRight,totalsTop));c.push(line(xDesc,totalsTop,xDesc,basesTop));c.push(line(xVenc,totalsTop,xVenc,basesTop));
   c.push(textCenter(xDesc,totalsTop-11,xVenc-xDesc,'Total de Vencimentos',5.3),textCenter(xVenc,totalsTop-11,mainRight-xVenc,'Total de Descontos',5.3));
   c.push(textRight(xVenc-8,totalsTop-26,numberBr(input.gross),8),textRight(mainRight-8,totalsTop-26,numberBr(input.deductions),8));
