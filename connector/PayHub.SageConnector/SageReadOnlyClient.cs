@@ -295,18 +295,25 @@ public sealed class SageReadOnlyClient
                 throw new InvalidOperationException($"Tabela {table} não possui código de funcionário reconhecido; leitura ampla bloqueada.");
             }
 
-            AddOptionalIntPredicate(command, predicates, columns, ["ano", "nr_ano", "ano_referencia", "ano_competencia"], "@year", scope.FromAdmission ? null : scope.Year);
-            AddOptionalIntPredicate(command, predicates, columns, ["mes", "nr_mes", "mes_referencia", "mes_competencia"], "@month", scope.FromAdmission ? null : scope.Month);
-            var typeColumn = FindColumn(columns, ["tipo", "tipo_processamento", "tp_folha", "tipo_folha", "cd_tipo"]);
-            if (typeColumn is not null && scope.Types is { Length: > 0 })
+            // EventoGVigencia é uma tabela global de definição dos eventos.
+            // As colunas "ano", "mes" ou "tipo" nela não representam, necessariamente,
+            // a competência/tipo da folha. Aplicar os filtros de PAYROLL_IMPORT aqui elimina
+            // descrições/naturezas e faz o normalizador cair em "Evento X / OUTROS".
+            if (!isGlobalReferenceTable)
             {
-                var names = new List<string>();
-                for (var i = 0; i < scope.Types.Length; i++)
+                AddOptionalIntPredicate(command, predicates, columns, ["ano", "nr_ano", "ano_referencia", "ano_competencia"], "@year", scope.FromAdmission ? null : scope.Year);
+                AddOptionalIntPredicate(command, predicates, columns, ["mes", "nr_mes", "mes_referencia", "mes_competencia"], "@month", scope.FromAdmission ? null : scope.Month);
+                var typeColumn = FindColumn(columns, ["tipo", "tipo_processamento", "tp_folha", "tipo_folha", "cd_tipo"]);
+                if (typeColumn is not null && scope.Types is { Length: > 0 })
                 {
-                    var name = $"@type{i}"; names.Add(name);
-                    command.Parameters.Add(new SqlParameter(name, SqlDbType.Int) { Value = scope.Types[i] });
+                    var names = new List<string>();
+                    for (var i = 0; i < scope.Types.Length; i++)
+                    {
+                        var name = $"@type{i}"; names.Add(name);
+                        command.Parameters.Add(new SqlParameter(name, SqlDbType.Int) { Value = scope.Types[i] });
+                    }
+                    predicates.Add($"[{EscapeIdentifier(typeColumn)}] IN ({string.Join(",", names)})");
                 }
-                predicates.Add($"[{EscapeIdentifier(typeColumn)}] IN ({string.Join(",", names)})");
             }
 
             var where = predicates.Count > 0 ? " WHERE " + string.Join(" AND ", predicates) : string.Empty;
@@ -457,8 +464,29 @@ public sealed class SageReadOnlyClient
     private static decimal? DecimalValue(string? value)
     {
         if(string.IsNullOrWhiteSpace(value))return null;
-        if(decimal.TryParse(value,NumberStyles.Any,CultureInfo.InvariantCulture,out var invariant))return invariant;
-        if(decimal.TryParse(value,NumberStyles.Any,CultureInfo.GetCultureInfo("pt-BR"),out var br))return br;
+        value=value.Trim();
+        var brCulture=CultureInfo.GetCultureInfo("pt-BR");
+
+        // O Sage desta instalação devolve valores como "2783,42". Em InvariantCulture,
+        // a vírgula pode ser interpretada como separador de milhar e virar 278342.
+        // Escolhemos a cultura pelo separador decimal aparente e só então fazemos fallback.
+        if(value.Contains(',') && value.Contains('.'))
+        {
+            var decimalIsComma=value.LastIndexOf(',')>value.LastIndexOf('.');
+            if(decimalIsComma && decimal.TryParse(value,NumberStyles.Any,brCulture,out var brMixed))return brMixed;
+            if(!decimalIsComma && decimal.TryParse(value,NumberStyles.Any,CultureInfo.InvariantCulture,out var invariantMixed))return invariantMixed;
+        }
+        else if(value.Contains(','))
+        {
+            if(decimal.TryParse(value,NumberStyles.Any,brCulture,out var br))return br;
+        }
+        else if(value.Contains('.'))
+        {
+            if(decimal.TryParse(value,NumberStyles.Any,CultureInfo.InvariantCulture,out var invariant))return invariant;
+        }
+
+        if(decimal.TryParse(value,NumberStyles.Any,brCulture,out var brFallback))return brFallback;
+        if(decimal.TryParse(value,NumberStyles.Any,CultureInfo.InvariantCulture,out var invariantFallback))return invariantFallback;
         return null;
     }
 

@@ -84,6 +84,6 @@ Para atualização da versão 0.4.0 em produção, consulte `DEPLOY-HOTFIX-0.4.0
 - PWA com visualização discriminativa do holerite;
 - assinatura desenhada disponível em Assinatura/Evidências no administrativo;
 - PDF assinado com declaração e aceite completos sem truncamento;
-- Connector Sage 3.1.0.
+- Connector Sage 3.1.1 (hotfix de valores pt-BR e EventoGVigencia).
 
 Consulte `DEPLOY-HOTFIX-0.4.1.md` para atualização.
