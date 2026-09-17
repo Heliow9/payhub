@@ -137,3 +137,9 @@ Consulte `DEPLOY-HOTFIX-0.4.4.md` para atualização.
 - Ao executar **Sincronizar Sage**, os PDFs atuais ainda não assinados do funcionário são regenerados com a função/cargo corrigida e o novo SHA-256 é salvo. PDFs já assinados não são alterados.
 
 Consulte `DEPLOY-HOTFIX-0.4.5.md`.
+
+
+## Versão 0.4.6 — hotfix de build TypeScript
+
+- Corrige `TS18048` no leitor de dimensões JPEG usado pelo comprovante de evidências.
+- Sem alteração de banco.

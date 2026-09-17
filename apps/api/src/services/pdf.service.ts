@@ -129,6 +129,7 @@ function jpegDimensions(data:Buffer):{width:number;height:number}{
     while(offset<data.length&&data[offset]!==0xFF)offset++;
     if(offset+1>=data.length)break;
     const marker=data[offset+1];
+    if(marker===undefined)break;
     offset+=2;
     if(marker===0xD9||marker===0xDA)break;
     if(offset+2>data.length)break;
