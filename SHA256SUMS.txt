@@ -4,8 +4,9 @@ e80511db4592017e72c9a4f6b2cc0e8fd1cef7605200177aa9257152b825201b  ./DEPLOY-ETAPA
 b5a835b0548641c7b1b0b93e665ddc3c37bc4170e776384552ae25fe1a73c44a  ./DEPLOY-ETAPA3.md
 de4eb92a654afa3ca03369e6ec2f384adad1b93af186f4c804cbcb6971be348d  ./DEPLOY-HOTFIX-0.3.1.md
 fd2b7cf35ea2d80803307dbeecb4a00c55953377ac23692317ecbb54b3457484  ./DEPLOY-HOTFIX-0.3.2.md
+2371ae32d9fe2631798ac85d0fcf145f6a8270bed21de63141a2411e2a799814  ./DEPLOY-HOTFIX-0.3.3.md
 c91cc11aabc43e335b95cfa1d8a51f440a5a2bbf8729349f5b85b4efceed902f  ./README.md
-511a100eedfb9ea66441e5d506392dba2d8aa290f98c4c544c70ae75ec3c3396  ./VERSION
+a0dc8325e2fbe558e09bf7d61260ca378151b0a3f875dd8b46ecd3693e34c10b  ./VERSION
 ced27599e0c015ca294dfc103a6c3a749bef310af65f9eae0f6992aa489e10d1  ./apps/android/README.md
 26b215adf31ab4a390699287ad76e49fb55a452489ee45282d1d64ec44a8f00f  ./apps/android/app/build.gradle.kts
 a2e5d040c3d8bf83ed5cdbd9df222f9d744854d7e1e597624168dc525dd2b7d9  ./apps/android/app/proguard-rules.pro
@@ -16,7 +17,7 @@ dea35ebed76536c24c13f74036f02dc874f944147cb3a49c2ad0550f71e3e0c7  ./apps/android
 50425357e4449207a6e3098fa4f4dc66864a870859025051fc809589ddb858df  ./apps/android/build.gradle.kts
 fa078c27c9e4bde28a029d673875b028884505efa436b68cf60e1ac0be5b679b  ./apps/android/gradle.properties
 89d029aff6f91ee461f1b4edb52fa50e9fa270c7782d30e6abeef73194aa78fb  ./apps/android/settings.gradle.kts
-dd0eb206e9b692036932da02f9a4d08231f3e6c6c1c64ca5452ceca3d30a8c6a  ./apps/api/package.json
+c8c6d1127814e21e668c3e0644285dd17a2d4ed0779679bb66d8712e890dc784  ./apps/api/package.json
 e04bd8549753aa10b17d3be76ba8cd194fb5442f6c61e5e658a798eafe92e9d1  ./apps/api/src/app.ts
 386f1c6d14b5a9c2037ab5100551b0765dcd4b6f6a1836876ad3ed688b21dbe9  ./apps/api/src/config/env.ts
 d07271620439b7edffd9a3cab48b95d79c319b6b4dd05dc93c8d650752fc5a43  ./apps/api/src/config/load-dotenv.ts
@@ -53,7 +54,7 @@ fa511893a1fa708dd3fff4daf9400a1f603a228fe61e6764c73d4b37c5798169  ./apps/api/src
 b2bcd7bfd8e9812a8ff7fd4e4e3da86392d14777ce4afbe9d8f05880aa6c6948  ./apps/api/src/services/connector.service.ts
 8e797e8e01356600a28e8670611f17cf61ed0b887dd03905fe10f44ced38c306  ./apps/api/src/services/employee.service.ts
 9de8d7b1403910c3b1404ac8ecee669e4a684a1ba9e010d5a744fff9c9c0c02a  ./apps/api/src/services/group.service.ts
-3e49c763d3bf040a532fda838d7f30ee5ffa71eef68735685502d8b63f0c03fa  ./apps/api/src/services/normalizer.service.ts
+571a2f349c36dc28a7037968ba0d8ff39f654cfa175f4e2ba64e910b8e847afe  ./apps/api/src/services/normalizer.service.ts
 95bd3a56b3e0d2c7fe873953b3df9a65ab1a11e1650cdca351425d63b6b3793a  ./apps/api/src/services/payroll-run.service.ts
 e9859d3c04f0b2a03c98d32d3cc5708a101891e248dde25d05c44933be969ae7  ./apps/api/src/services/payroll.service.ts
 6e3bb8ea8d46255f4fe54c18fd8464d6256d29d2e9abd7ece55c8642c9d9cddf  ./apps/api/src/services/pdf.service.ts
@@ -62,14 +63,14 @@ e9859d3c04f0b2a03c98d32d3cc5708a101891e248dde25d05c44933be969ae7  ./apps/api/src
 b91360cd5e2f74728c91c9b1e728fc99b5e876d1f517b76dcdfd1fc01f4167ed  ./apps/api/src/services/storage.service.ts
 dd1e2a21f1ee2aaefbca31fd283c7e6a28dde27c5e878cf386b6a2bc7e4d2769  ./apps/api/src/tests/auth-compat.test.ts
 4ad61e6abf911d35a32314f226a6c4c03e33485974877b187be4fdc124702464  ./apps/api/src/tests/manual-search.test.ts
-3a6f5ad802364d808439047c133ec423918313f97142d43377ca6a44c2240744  ./apps/api/src/tests/normalizer.test.ts
+4b70a4c53fbff7b05fe9b20ad894dc43291d21cbc435b1d989af44d3cbb1ca61  ./apps/api/src/tests/normalizer.test.ts
 efe52729ae55440134901b466592647d7385aa480ad3c9093b0b95d9271cb4cf  ./apps/api/src/tests/pdf.test.ts
 3cdc675f628a59f62e0c52fa4172a673b682402e16200144f85802a637ba8e8c  ./apps/api/src/tests/security.test.ts
 5f74f43f62e8b51a62419d164a126509d74e4e6a5ff711e11f1efa404a01123c  ./apps/api/src/tests/time.test.ts
 e6965076aa334f886c875a9b6ee82f00ade91eeb54eb8a4810af6dd495ed484a  ./apps/api/src/worker/main.ts
 7a3f4e76d3c21f9f56d565095859137f8d236188a6cada3e8b3b903265b4d68a  ./apps/api/tsconfig.json
 ebe2890976421a34a39ffb71b3421e684d2845ebaedabb200ba1a72956b8d3d5  ./apps/dashboard/index.html
-491ac010151fba7f27fdd1dbd1caff1f5590284799622c33b9569023bdd30b29  ./apps/dashboard/package.json
+dd4ceff41d5600dd6f54be4fc4ddc68efa387ae32bdb23d3b1d32a89cdef5fea  ./apps/dashboard/package.json
 4d04f3c1fc40adc3a7362872c072e25695f2c50def72db569a5f8077fb3315a7  ./apps/dashboard/public/manifest.webmanifest
 d47e5b824738fa36039fdaa835f78964756185cdf757be33eac0dae1ff10f636  ./apps/dashboard/public/sw.js
 e6cab6c98a957131f521696abf2c0bcc08baab5d0014902d508caf25ca1830d9  ./apps/dashboard/src/App.tsx
@@ -119,5 +120,5 @@ dcd196509b367b4d3b42bc827b54991b2f5e19ee6f19e6de8dfc4dee7f3e000b  ./docs/superpo
 009cd06b8772d9fc96604024ba6ff44d346c37a717902e33f061293e5ee7ad79  ./docs/superpowers/specs/2026-09-16-payhub-etapa3-design.md
 a8ee5b6235320635afb5b8e24918071950ee68e416359ae3b2062793df2ee0f3  ./docs/superpowers/specs/2026-09-16-payhub-sage-connector-design.md
 ea6e4b5326fe7bf0c4543f87f31eabca1cd3116a83eb60d22f0e6ec5aa792500  ./ecosystem.config.cjs
-41803f2de1e433f671105ccae678f398a324ccc677088785a3b7dc5efb774be5  ./package.json
+568b86bb57dd2ac52093643adf8509f21212d0218a936ed9abc82d973eac102a  ./package.json
 bbe73e4f36c05915287c63ffd947396a7517885a4f0521788ecff477d76bca61  ./tsconfig.base.json
