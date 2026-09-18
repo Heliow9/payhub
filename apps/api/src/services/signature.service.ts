@@ -19,7 +19,7 @@ const execFileAsync=promisify(execFile);
 
 
 function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{const snapshot=parseJson<Record<string,unknown>>(raw,{});const entries=new Map(Object.entries(snapshot).map(([k,v])=>[k.toLowerCase(),v]));for(const alias of aliases){const value=entries.get(alias.toLowerCase());if(value!==undefined&&value!==null&&String(value).trim()!=='')return String(value).trim();}return null;}
-const cboAliases=['cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
+const cboAliases=['cbo_atual','cbo2002','cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
 
 interface SignContext{requestId:number;payrollId:number;employeeId:number;employeeName:string;cpf:string;sageCode:string;cbo:string|null;jobTitle:string|null;admissionDate:string|null;rawReference:Record<string,unknown>;year:number;month:number;payrollType:number;typeLabel:string;gross:number|null;deductions:number|null;net:number|null;status:string;acceptanceText:string;acceptanceHash:string;originalPath:string;originalHash:string;signatureMode:SignatureMode;}
 

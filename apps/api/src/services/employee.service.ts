@@ -27,7 +27,7 @@ export interface EmployeeLookupResult {
   raw?: Record<string, unknown>;
 }
 
-const cboAliases=['cbo_atual','cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
+const cboAliases=['cbo_atual','cbo2002','cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
 function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
   const snapshot=parseJson<Record<string,unknown>>(raw,{});const entries=new Map(Object.entries(snapshot).map(([key,value])=>[key.toLowerCase(),value]));
   for(const alias of aliases){const value=entries.get(alias.toLowerCase());if(value!==undefined&&value!==null&&String(value).trim()!=='')return String(value).trim();}

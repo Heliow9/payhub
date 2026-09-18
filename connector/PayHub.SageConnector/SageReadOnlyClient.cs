@@ -36,7 +36,7 @@ public sealed class SageReadOnlyClient
     private static readonly string[] FunctionDescriptionAliases = ["ds_funcao", "descricao_funcao", "nm_funcao", "nome_funcao", "ds_nome_funcao", "nm_nome_funcao", "funcao_descricao", "denominacao_funcao", "ds_cargo", "descricao_cargo", "nm_cargo", "nome_cargo", "ds_nome_cargo", "nm_nome_cargo", "cargo_descricao", "denominacao_cargo"];
     private static readonly string[] FunctionReferenceDescriptionAliases = ["ds_funcao", "descricao_funcao", "nm_funcao", "nome_funcao", "ds_nome_funcao", "nm_nome_funcao", "funcao_descricao", "denominacao_funcao", "ds_cargo", "descricao_cargo", "nm_cargo", "nome_cargo", "ds_nome_cargo", "nm_nome_cargo", "cargo_descricao", "denominacao_cargo", "descricao", "ds_descricao", "nm_descricao", "nome", "denominacao", "titulo"];
     private static readonly string[] FunctionCodeAliases = ["cd_funcao", "codigo_funcao", "cod_funcao", "id_funcao", "nr_funcao", "funcao", "cd_cargo", "codigo_cargo", "cod_cargo", "id_cargo", "nr_cargo", "cargo"];
-    private static readonly string[] CboAliases = ["cbo", "cd_cbo", "nr_cbo", "codigo_cbo", "cbo_funcao", "cd_cbo_funcao"];
+    private static readonly string[] CboAliases = ["cbo2002", "cbo", "cd_cbo", "nr_cbo", "codigo_cbo", "cbo_funcao", "cd_cbo_funcao"];
     private static readonly string[] PhoneAliases = ["telefone", "nr_telefone", "fone", "celular", "nr_celular"];
     private static readonly string[] StatusAliases = ["situacao", "status", "st_funcionario", "ds_situacao", "fl_ativo"];
     private static readonly string[] SalaryAliases = ["salario", "vl_salario", "valor_salario", "vlr_salario", "salario_atual"];
@@ -144,36 +144,36 @@ public sealed class SageReadOnlyClient
         var funcionarioRows = await ReadEmployeeRowsAsync(connection, "Funcionario", companyCode, employeeCode, cancellationToken);
         var documentoRows = await ReadEmployeeRowsAsync(connection, "FunDocumento", companyCode, employeeCode, cancellationToken);
         var funcionalRows = await ReadEmployeeRowsAsync(connection, "FunFuncional", companyCode, employeeCode, cancellationToken);
+        var functionRows = await ReadFunctionRowsAsync(connection, companyCode, employeeCode, cancellationToken);
         var salarioRows = await ReadEmployeeRowsAsync(connection, "FunSalario", companyCode, employeeCode, cancellationToken);
-        var latestFunctional = LatestByDate(funcionalRows, FunctionDateAliases);
+        var latestFunction = LatestByDate(functionRows, FunctionDateAliases);
         var latestSalary = LatestByDate(salarioRows, SalaryDateAliases);
 
-        Dictionary<string, object?>? functionReference = null;
-        var functionCode = latestFunctional is null ? null : First(latestFunctional, FunctionCodeAliases);
-        if (!string.IsNullOrWhiteSpace(functionCode))
+        Dictionary<string, object?>? functionReference = latestFunction;
+        var functionCode = latestFunction is null ? null : First(latestFunction, FunctionCodeAliases);
+        if (functionReference is null && !string.IsNullOrWhiteSpace(functionCode))
         {
             functionReference = await FindFunctionReferenceAsync(connection, functionCode, cancellationToken);
         }
 
         var lifecycleRows = await ReadLifecycleRowsAsync(connection, companyCode, employeeCode, cancellationToken);
-        var allRows = funcionarioRows.Concat(documentoRows).Concat(funcionalRows).Concat(salarioRows).Concat(lifecycleRows).ToList();
+        var allRows = funcionarioRows.Concat(documentoRows).Concat(funcionalRows).Concat(functionRows).Concat(salarioRows).Concat(lifecycleRows).ToList();
 
         var collected = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in funcionarioRows) Merge(collected, row);
         foreach (var row in documentoRows) Merge(collected, row);
-        if (latestFunctional is not null) MergeOverwrite(collected, latestFunctional);
-        if (functionReference is not null) MergeOverwrite(collected, functionReference);
+        if (latestFunction is not null) MergeOverwrite(collected, latestFunction);
+        if (functionReference is not null && !ReferenceEquals(functionReference, latestFunction)) MergeOverwrite(collected, functionReference);
         if (latestSalary is not null) MergeOverwrite(collected, latestSalary);
         foreach (var row in lifecycleRows) MergeOverwriteEmpty(collected, row);
 
-        var jobTitle = First(latestFunctional ?? new(StringComparer.OrdinalIgnoreCase), FunctionDescriptionAliases)
-            ?? First(functionReference ?? new(StringComparer.OrdinalIgnoreCase), FunctionReferenceDescriptionAliases)
-            ?? First(collected, FunctionDescriptionAliases)
-            ?? InferFunctionDescription(latestFunctional)
+        var jobTitle = PreferredFunctionDescription(latestFunction)
+            ?? ValidFunctionDescription(First(functionReference ?? new(StringComparer.OrdinalIgnoreCase), FunctionReferenceDescriptionAliases))
+            ?? ValidFunctionDescription(First(collected, FunctionDescriptionAliases))
             ?? InferFunctionDescription(functionReference)
             ?? InferFunctionDescription(collected);
-        var cbo = First(functionReference ?? new(StringComparer.OrdinalIgnoreCase), CboAliases)
-            ?? First(latestFunctional ?? new(StringComparer.OrdinalIgnoreCase), CboAliases)
+        var cbo = PreferredCbo(latestFunction)
+            ?? First(functionReference ?? new(StringComparer.OrdinalIgnoreCase), CboAliases)
             ?? First(collected, CboAliases);
         var currentSalaryText = First(latestSalary ?? new(StringComparer.OrdinalIgnoreCase), SalaryAliases);
         var currentSalary = DecimalValue(currentSalaryText);
@@ -199,18 +199,18 @@ public sealed class SageReadOnlyClient
             .OrderByDescending(row => ParseDate(row["date"]) ?? DateTime.MinValue)
             .ToList();
 
-        var functionHistory = funcionalRows
+        var functionHistory = functionRows
             .Select(row =>
             {
                 var code = First(row, FunctionCodeAliases);
-                var description = First(row, FunctionDescriptionAliases);
+                var description = PreferredFunctionDescription(row);
                 if (string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(code) && string.Equals(code, functionCode, StringComparison.OrdinalIgnoreCase)) description = jobTitle;
                 return new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["date"] = LatestIsoDate([row], FunctionDateAliases),
                     ["functionCode"] = code,
                     ["jobTitle"] = description,
-                    ["cbo"] = First(row, CboAliases),
+                    ["cbo"] = PreferredCbo(row),
                 };
             })
             .Where(row => row["jobTitle"] is not null || row["functionCode"] is not null || row["date"] is not null)
@@ -219,6 +219,7 @@ public sealed class SageReadOnlyClient
 
         collected["funcao_atual"] = jobTitle;
         collected["codigo_funcao_atual"] = functionCode;
+        collected["funcao_origem_tabela"] = functionReference is not null && functionReference.TryGetValue("__source_table", out var functionSource) ? functionSource : "FunFuncao+Funcao";
         collected["cbo_atual"] = cbo;
         collected["salario_atual"] = currentSalary;
         collected["dt_vigencia_salario"] = salaryEffectiveDate;
@@ -361,6 +362,54 @@ public sealed class SageReadOnlyClient
         return rows;
     }
 
+    private async Task<List<Dictionary<string, object?>>> ReadFunctionRowsAsync(SqlConnection connection, string companyCode, string employeeCode, CancellationToken cancellationToken)
+    {
+        var funFuncaoColumns = await GetColumnsAsync(connection, "FunFuncao", cancellationToken);
+        var funcaoColumns = await GetColumnsAsync(connection, "Funcao", cancellationToken);
+        if (funFuncaoColumns.Count == 0 || funcaoColumns.Count == 0) return [];
+
+        var requiredFunFuncao = new[] { "cd_empresa", "cd_funcionario", "dt_funcao", "cd_funcao" };
+        var requiredFuncao = new[] { "enterprise_id", "cd_funcao" };
+        if (requiredFunFuncao.Any(name => !funFuncaoColumns.Contains(name, StringComparer.OrdinalIgnoreCase)) ||
+            requiredFuncao.Any(name => !funcaoColumns.Contains(name, StringComparer.OrdinalIgnoreCase))) return [];
+
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandTimeout = _options.CommandTimeoutSeconds;
+        cmd.Parameters.Add(new SqlParameter("@company", SqlDbType.NVarChar, 100) { Value = companyCode });
+        cmd.Parameters.Add(new SqlParameter("@employee", SqlDbType.NVarChar, 100) { Value = employeeCode });
+        cmd.CommandText = @"
+SELECT TOP (500)
+    ff.cd_empresa,
+    ff.cd_funcionario,
+    ff.dt_funcao,
+    ff.cd_funcao,
+    ff.cd_nivel,
+    ff.dt_final,
+    f.descricao,
+    f.descricao_completa,
+    f.cbo,
+    f.cbo2002,
+    f.status AS funcao_status,
+    f.enterprise_id AS funcao_enterprise_id
+FROM FunFuncao ff
+LEFT JOIN Funcao f
+       ON f.enterprise_id = ff.cd_empresa
+      AND f.cd_funcao = ff.cd_funcao
+WHERE CONVERT(nvarchar(100), ff.cd_empresa) = @company
+  AND CONVERT(nvarchar(100), ff.cd_funcionario) = @employee
+ORDER BY CASE WHEN ff.dt_final IS NULL OR ff.dt_final >= CAST(GETDATE() AS date) THEN 0 ELSE 1 END, ff.dt_funcao DESC";
+
+        var rows = new List<Dictionary<string, object?>>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var row = ReadRow(reader);
+            row["__source_table"] = "FunFuncao+Funcao";
+            rows.Add(row);
+        }
+        return rows;
+    }
+
     private async Task<Dictionary<string, object?>?> FindFunctionReferenceAsync(SqlConnection connection, string functionCode, CancellationToken cancellationToken)
     {
         var tables = await GetTableNamesAsync(connection, cancellationToken);
@@ -380,7 +429,14 @@ public sealed class SageReadOnlyClient
             try
             {
                 await using var reader=await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow,cancellationToken);
-                if(await reader.ReadAsync(cancellationToken))return ReadRow(reader);
+                if(await reader.ReadAsync(cancellationToken))
+                {
+                    var row=ReadRow(reader);
+                    var candidateDescription=ValidFunctionDescription(First(row,FunctionReferenceDescriptionAliases));
+                    if(candidateDescription is null) continue;
+                    row["__source_table"]=table;
+                    return row;
+                }
             }
             catch (SqlException) { /* tabela de referência opcional */ }
         }
@@ -501,6 +557,33 @@ public sealed class SageReadOnlyClient
     private static object? FirstValueFromRows(IEnumerable<Dictionary<string,object?>> rows,IEnumerable<string> aliases)
     {foreach(var row in rows){var value=FirstValue(row,aliases);if(value is not null)return value;}return null;}
 
+    private static string? PreferredFunctionDescription(Dictionary<string, object?>? row)
+    {
+        if (row is null) return null;
+        foreach (var alias in new[] { "descricao_completa", "descricao", "descricao_funcao", "ds_funcao", "nome_funcao", "nm_funcao" })
+        {
+            if (!row.TryGetValue(alias, out var value)) continue;
+            var candidate = ValidFunctionDescription(Convert.ToString(value));
+            if (candidate is not null) return candidate;
+        }
+        return null;
+    }
+
+    private static string? PreferredCbo(Dictionary<string, object?>? row)
+    {
+        if (row is null) return null;
+        foreach (var alias in new[] { "cbo2002", "cbo", "cd_cbo", "nr_cbo", "codigo_cbo" })
+        {
+            if (!row.TryGetValue(alias, out var value) || value is null) continue;
+            var text = Convert.ToString(value)?.Trim();
+            if (string.IsNullOrWhiteSpace(text)) continue;
+            var digits = OnlyDigits(text);
+            if (digits.Length > 0 && digits.Length <= 6 && digits.Length == text.Length) return digits.PadLeft(6, '0');
+            return text;
+        }
+        return null;
+    }
+
     private static string? InferFunctionDescription(Dictionary<string, object?>? row)
     {
         if (row is null) return null;
@@ -509,11 +592,21 @@ public sealed class SageReadOnlyClient
             var key = NormalizeName(pair.Key);
             if (!key.Contains("funcao") && !key.Contains("cargo")) continue;
             if (key.Contains("codigo") || key.StartsWith("cd_") || key.Contains("_cd_") || key.Contains("cbo") || key.Contains("data") || key.StartsWith("dt_") || key.Contains("historico") || key.StartsWith("id_") || key.EndsWith("_id")) continue;
-            var value = Convert.ToString(pair.Value)?.Trim();
-            if (string.IsNullOrWhiteSpace(value) || value.Length > 190 || value.All(c => char.IsDigit(c) || char.IsWhiteSpace(c) || c is '.' or ',' or '-' or '+')) continue;
-            if (value.Any(char.IsLetter)) return value;
+            var value = ValidFunctionDescription(Convert.ToString(pair.Value));
+            if (value is not null) return value;
         }
         return null;
+    }
+
+    private static string? ValidFunctionDescription(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var text = value.Trim();
+        // Códigos internos do Sage como E, A, S, N ou números não são descrição de cargo/função.
+        if (text.Length < 3 || text.Length > 190) return null;
+        if (text.All(c => char.IsDigit(c) || char.IsWhiteSpace(c) || c is '.' or ',' or '-' or '+' or '/')) return null;
+        if (!text.Any(char.IsLetter)) return null;
+        return text;
     }
 
     private static string? FindColumn(IEnumerable<string> columns, IEnumerable<string> aliases)

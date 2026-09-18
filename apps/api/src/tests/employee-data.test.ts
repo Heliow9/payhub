@@ -6,4 +6,6 @@ describe('employee data helpers',()=>{
   it('monta patch Sage sem alterar telefone PayHub',()=>{expect(sageEmployeePatch({name:'HELIO',birthDate:'1980-01-01',admissionDate:'2018-09-03',jobTitle:'TECNICO INFORMATICA',status:'DEMITIDO',raw:{salario_atual:2783.42}})).toEqual({name:'HELIO',birthDate:'1980-01-01',admissionDate:'2018-09-03',jobTitle:'TECNICO INFORMATICA',sageStatus:'DEMITIDO',snapshotJson:'{"salario_atual":2783.42}'});});
   it('recupera função/cargo de aliases do snapshot Sage',()=>{expect(inferSageJobTitle({descricao_cargo:'ANALISTA ADMINISTRATIVO'})).toBe('ANALISTA ADMINISTRATIVO');expect(inferSageJobTitle({descricao_da_funcao:'TECNICO EM INFORMATICA'})).toBe('TECNICO EM INFORMATICA');expect(inferSageJobTitle({funcao:'70'})).toBeNull();});
   it('usa função inferida quando o campo canônico jobTitle não veio do conector',()=>{expect(sageEmployeePatch({name:'HELIO',birthDate:'1980-01-01',raw:{cargo_descricao:'TECNICO EM INFORMATICA'}}).jobTitle).toBe('TECNICO EM INFORMATICA');});
+
+  it('ignora códigos curtos como cargo/função',()=>{expect(inferSageJobTitle({funcao_status:'E'})).toBeNull();expect(sageEmployeePatch({name:'HELIO',birthDate:'1980-01-01',jobTitle:'E',raw:{descricao_cargo:'TECNICO EM INFORMATICA'}}).jobTitle).toBe('TECNICO EM INFORMATICA');});
 });

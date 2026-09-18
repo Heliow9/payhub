@@ -16,7 +16,7 @@ function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
   for(const alias of aliases){const value=entries.get(alias.toLowerCase());if(value!==undefined&&value!==null&&String(value).trim()!=='')return String(value).trim();}
   return null;
 }
-const cboAliases=['cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
+const cboAliases=['cbo_atual','cbo2002','cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
 const legacyPayrollFooter='Documento gerado pelo PayHub a partir dos dados de folha recebidos do Sage.';
 
 function exportFileSafe(value:string):string{return value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9._-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,90)||'HOLERITE';}

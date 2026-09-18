@@ -143,3 +143,20 @@ Consulte `DEPLOY-HOTFIX-0.4.5.md`.
 
 - Corrige `TS18048` no leitor de dimensões JPEG usado pelo comprovante de evidências.
 - Sem alteração de banco.
+
+## Versão 0.4.7 — correção cargo/função Sage
+
+- Rejeita códigos curtos como `E` na função atual.
+- Continua a busca pela descrição real de cargo/função no Sage.
+- Requer atualização do Connector e nova sincronização do funcionário.
+
+
+## Versão 0.4.8 — função e CBO oficiais do Sage
+
+- função obtida por `FunFuncao` + `Funcao`;
+- `descricao_completa`/`descricao` usadas como cargo/função;
+- `cbo2002`/`cbo` usados no holerite;
+- sincronização regenera PDFs não assinados com os novos dados;
+- Connector Sage 3.1.4.
+
+Consulte `DEPLOY-HOTFIX-0.4.8.md`.

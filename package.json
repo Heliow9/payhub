@@ -1,7 +1,7 @@
 {
   "name": "payhub",
   "private": true,
-  "version": "0.4.6",
+  "version": "0.4.8",
   "workspaces": [
     "apps/*"
   ],

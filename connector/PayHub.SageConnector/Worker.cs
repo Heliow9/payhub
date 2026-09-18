@@ -41,7 +41,7 @@ public sealed class Worker : BackgroundService
         await _api.HeartbeatAsync(Environment.MachineName, new
         {
             os = Environment.OSVersion.ToString(), dotnet = Environment.Version.ToString(), processId = Environment.ProcessId,
-            connectorVersion = typeof(Worker).Assembly.GetName().Version?.ToString() ?? "3.1.1"
+            connectorVersion = typeof(Worker).Assembly.GetName().Version?.ToString() ?? "3.1.4"
         }, cancellationToken);
         _lastHeartbeat = DateTimeOffset.UtcNow;
     }

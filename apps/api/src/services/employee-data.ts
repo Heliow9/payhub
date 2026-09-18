@@ -20,7 +20,7 @@ const explicitJobTitleAliases=['funcao_atual','jobtitle','job_title','ds_funcao'
 function isLikelyTextTitle(value:unknown):value is string{
   if(value===null||value===undefined)return false;
   const text=String(value).trim();
-  if(text.length<2||text.length>190)return false;
+  if(text.length<3||text.length>190)return false;
   if(/^[-+]?\d+(?:[.,]\d+)?$/.test(text))return false;
   return /[A-Za-zÀ-ÿ]/.test(text);
 }
@@ -48,7 +48,8 @@ export function inferSageJobTitle(raw:Record<string,unknown>|undefined|null):str
 }
 
 export function sageEmployeePatch(employee:SageEmployeeData){
-  const jobTitle=(employee.jobTitle&&String(employee.jobTitle).trim())||inferSageJobTitle(employee.raw)||null;
+  const canonicalJobTitle=isLikelyTextTitle(employee.jobTitle)?String(employee.jobTitle).trim():null;
+  const jobTitle=canonicalJobTitle||inferSageJobTitle(employee.raw)||null;
   return{
     name:String(employee.name),
     birthDate:String(employee.birthDate),
