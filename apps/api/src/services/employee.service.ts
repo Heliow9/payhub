@@ -28,6 +28,12 @@ export interface EmployeeLookupResult {
   raw?: Record<string, unknown>;
 }
 
+interface EmployeePayrollStatsRow extends RowDataPacket {
+  total: number | string;
+  signedCount: number | string | null;
+  pendingCount: number | string | null;
+}
+
 const cboAliases=['cbo_atual','cbo2002','cbo','cd_cbo','nr_cbo','codigo_cbo','cbo_funcao','cd_cbo_funcao'];
 function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
   const snapshot=parseJson<Record<string,unknown>>(raw,{});const entries=new Map(Object.entries(snapshot).map(([key,value])=>[key.toLowerCase(),value]));
@@ -158,19 +164,19 @@ export class EmployeeService {
         WHERE e.id=? LIMIT 1`,[employeeId]);
     const row=rows[0];if(!row)throw notFound('Funcionário não encontrado.');
     const cbo=sageSnapshotValue(row.sageSnapshotJson,cboAliases);
-    const [stats]=await this.pool.execute<RowDataPacket[]>(
+    const [stats]=await this.pool.execute<EmployeePayrollStatsRow[]>(
       `SELECT COUNT(*) total,
               SUM(CASE WHEN status='SIGNED' THEN 1 ELSE 0 END) signedCount,
               SUM(CASE WHEN status IN ('SIGNATURE_REQUESTED','VIEWED') THEN 1 ELSE 0 END) pendingCount
          FROM payrolls WHERE employee_id=? AND is_current=1`,[employeeId]);
-    const stat=stats[0]??{};
+    const stat=stats[0];
     return {
       id:Number(row.id),name:String(row.name),cpf:String(row.cpf),companyCode:String(row.companyCode),
       sageEmployeeCode:String(row.sageEmployeeCode),birthDate:row.birthDate?String(row.birthDate):null,
       admissionDate:row.admissionDate?String(row.admissionDate):null,jobTitle:row.jobTitle?String(row.jobTitle):null,
       cbo,phone:row.phone?String(row.phone):null,sageStatus:row.sageStatus?String(row.sageStatus):null,
       status:String(row.status),groupName:String(row.groupName),activatedAt:row.activatedAt??null,lastLoginAt:row.lastLoginAt??null,
-      hasPin:Number(row.hasPin??0)===1,totalPayrolls:Number(stat.total??0),signedPayrolls:Number(stat.signedCount??0),pendingPayrolls:Number(stat.pendingCount??0)
+      hasPin:Number(row.hasPin??0)===1,totalPayrolls:Number(stat?.total??0),signedPayrolls:Number(stat?.signedCount??0),pendingPayrolls:Number(stat?.pendingCount??0)
     };
   }
 

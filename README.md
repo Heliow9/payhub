@@ -192,3 +192,12 @@ Consulte `DEPLOY-0.5.0.md`.
 - Sem migration de banco.
 
 Consulte `DEPLOY-0.5.1.md`.
+
+## Versão 0.5.2 — hotfix de build
+
+- Corrige a tipagem das estatísticas do perfil do funcionário no MySQL.
+- Elimina os erros TS2339 para `total`, `signedCount` e `pendingCount`.
+- Sem migration de banco.
+- Sem atualização obrigatória do Connector Sage.
+
+Consulte `DEPLOY-HOTFIX-0.5.2.md`.

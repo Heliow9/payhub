@@ -18,10 +18,11 @@ a21548c4eb418b9d9a4afbff47dde2368f0c31b70ebd69cb635bc814d26a9e8b  ./DEPLOY-HOTFI
 ea7d1b9f160eb061668dbc08fd170e6a6734ea6943ee0108a83d33e361c3e7c0  ./DEPLOY-HOTFIX-0.4.7.md
 bacf82dc19556a890216f88a5a85b983fcaa42fb7c8088d5dc962e9f2cc0b66f  ./DEPLOY-HOTFIX-0.4.8.md
 9550b418b099f53cfc72df8d28b821d71e50a6399803553a6be555644c044a7d  ./DEPLOY-HOTFIX-0.4.9.md
-83ac51533a50445320e388bc124751ac59434e44c875bfa5482253b300306bde  ./README.md
-aba951626c8690ce493cbc8f018205bb468003f61fbf00fd3d3c71cebabc0177  ./VERSION
+aed004ed0826aff9386793e3b75804abafabd1e7f00ebd2b78c3ae918f83edc8  ./DEPLOY-HOTFIX-0.5.2.md
+eaa22b8b1f13c8b9daf98736cdcc0339fe03b79b3aa80b4218170bea49d274b0  ./README.md
+26e0ab83aa1ff6bd0ae3882787a92663aa19db128e1241ffc99375fb9ca0c121  ./VERSION
 ced27599e0c015ca294dfc103a6c3a749bef310af65f9eae0f6992aa489e10d1  ./apps/android/README.md
-52def84803d7d880d650467a75fa50d83e4a3464daaaecc0cc0e5386c0b1fabf  ./apps/android/app/build.gradle.kts
+3cff49c8daecc499bebcd13f5e7d56f2a56c155907d2db8aaeabeaad5e7aa4ff  ./apps/android/app/build.gradle.kts
 a2e5d040c3d8bf83ed5cdbd9df222f9d744854d7e1e597624168dc525dd2b7d9  ./apps/android/app/proguard-rules.pro
 c0c79f50560717c1421b574d68f7dba581c534426dc6aba7b092e4bd7056aa86  ./apps/android/app/src/main/AndroidManifest.xml
 835d714c8a1f7691c2ba69e8570e3c7becf9102bb06dfcfd634ed3856a146c60  ./apps/android/app/src/main/java/br/com/payhub/app/MainActivity.kt
@@ -129,7 +130,7 @@ f6526ad46c52841ac2455bd3974617b0dd51e24e96a70dde09fc8b82a03b2c89  ./apps/api/dis
 740e57fe8627e2c22be72872580fd9d128e2db2ac0e9c48a7514a6d0f0a500a9  ./apps/api/dist/services/signature.service.js
 7ff84c1e0150ac05e7f2f659213e8aed0725cc9ad26ad295c80affd3c8f54bf8  ./apps/api/dist/services/storage.service.js
 07fb0abbacc58a3c83cc9b4a543673f53ee23ed140e67e9fa53c52d7148d2157  ./apps/api/dist/worker/main.js
-67e11a67efd62c6f70b4f0e99e48040cb15af8f412369b04d5ba76a2915f1188  ./apps/api/package.json
+0a831bf2436e29048e012d36b0adcb6dd1af7868c439f0b81eaa9841444af703  ./apps/api/package.json
 fd380fb4ab56a2ba993fc09a40fa0444cb36af46cf7ccb2b35147a0c6bbe114d  ./apps/api/src/app.test.ts
 e65e199cae240a63679ad00dea1eacc3bd95da5d0a3bf968b1236de2cf63e793  ./apps/api/src/app.ts
 b58e25ce2ac1f4f2ea7c8d0143e107e162fd5779414b4f7b6d92714b5dc246f9  ./apps/api/src/config/env.ts
@@ -216,7 +217,7 @@ d3178d4c758e0a918a912d450dde6ecd5f54b26f24967d46bcad46d5857158b2  ./apps/api/src
 d86d54abdabfcde9dc9b478f0e79f9bac738088c02062afaf733424a5c49199a  ./apps/api/src/services/connector.service.ts
 4f523fa37b27c1d73e3652cadf8dec6b267b2e34deb3261671a53921c2db963d  ./apps/api/src/services/employee-data.ts
 f9f50b7490812e805b258b8ab18f6e7f5554689725861bc4adf4c4c0ea26e894  ./apps/api/src/services/employee-delete-policy.ts
-8274b523039f7ad446179e5110304b6199fd65ae7718b00b8e9abec948d6a661  ./apps/api/src/services/employee.service.ts
+fb724bc86cb05e0eaf427b1cabde0f132b754ced244bf0be33d0da570e2ead1c  ./apps/api/src/services/employee.service.ts
 9de8d7b1403910c3b1404ac8ecee669e4a684a1ba9e010d5a744fff9c9c0c02a  ./apps/api/src/services/group.service.ts
 629dc14741a84280a35d3a92a681c84e850469b64bccc04baaac38b540775bef  ./apps/api/src/services/normalizer.service.ts
 5b103dae8821d00b582b8227da1349ba14c0e99259af39b840d6a52f250ca83b  ./apps/api/src/services/notification-policy.ts
@@ -243,7 +244,7 @@ c5fad6aa09828feb0f4c840088f9dec9acea5d8684d8799c8ef6a1cbf9f3694c  ./apps/api/src
 a40104d20635e269c98b95879438c60cb02a03aa46e133ebd334d832d691d341  ./apps/api/src/worker/main.ts
 7a3f4e76d3c21f9f56d565095859137f8d236188a6cada3e8b3b903265b4d68a  ./apps/api/tsconfig.json
 ceccff98bc111f8c142f6f2ea403eaf03fbf200481144c5943167b72aef19df9  ./apps/dashboard/index.html
-58509db985fe91161921da5619abba3d49d5147b59cffb849acb4a55307e37ec  ./apps/dashboard/package.json
+04ecfc9ecba4c6ad4dd10d36596a460b793a38c5ae5d6039818035aec8bad295  ./apps/dashboard/package.json
 9ba44b918b8f7f7c15de775a5f371a71fbcf8f14f55217a2d5dbd836feb9247c  ./apps/dashboard/public/assets/apple-touch-icon.png
 be59ec59c60842695c715709789b06e9a45184986d9c751a1c7a5758f81b5004  ./apps/dashboard/public/assets/favicon-32.png
 53dae6e1bd5911e8a7f86deb0a16554bbec05aaca81de2433f13d4220a4df9ec  ./apps/dashboard/public/assets/icon-192.png
@@ -326,5 +327,5 @@ a8ee5b6235320635afb5b8e24918071950ee68e416359ae3b2062793df2ee0f3  ./docs/superpo
 4a9095c015622c705c4fe07bb6f5598460563cc34b33afc6d599d269e02a8cd4  ./docs/superpowers/specs/2026-09-17-payhub-0.4.1-sage-signature-pwa-design.md
 ddbb423f28fee77dc47a18466610736841a090249ee13c0b4605848cc0673084  ./docs/superpowers/specs/2026-09-17-payhub-ux-push-employee-profile-design.md
 ea6e4b5326fe7bf0c4543f87f31eabca1cd3116a83eb60d22f0e6ec5aa792500  ./ecosystem.config.cjs
-7e63773133b8c3a9d2edc7e7db25b4661d38700a3c64d91f2f756ca221c07219  ./package.json
+60772741bbe2021d5ece2b39adee3f8bf40487b011e6e99189d8b76ed7a52748  ./package.json
 bbe73e4f36c05915287c63ffd947396a7517885a4f0521788ecff477d76bca61  ./tsconfig.base.json
