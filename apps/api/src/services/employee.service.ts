@@ -7,7 +7,7 @@ import { AuditService } from './audit.service.js';
 import { ConnectorService } from './connector.service.js';
 import { StorageService } from './storage.service.js';
 import { employeeDeletionBlockReason } from './employee-delete-policy.js';
-import { inferSageJobTitle, normalizeEmployeePhone, sageEmployeePatch } from './employee-data.js';
+import { inferSageCbo, inferSageJobTitle, normalizeEmployeePhone, sageEmployeePatch } from './employee-data.js';
 import { buildPayrollPdf } from './pdf.service.js';
 
 export interface EmployeeLookupResult {
@@ -17,6 +17,7 @@ export interface EmployeeLookupResult {
   birthDate: string;
   admissionDate?: string | null;
   jobTitle?: string | null;
+  cbo?: string | null;
   phone?: string | null;
   status?: string | null;
   currentSalary?: number | null;
@@ -65,7 +66,8 @@ export class EmployeeService {
     const first=rows.find((r)=>r && typeof r==='object') as EmployeeLookupResult|undefined;
     if(!first?.sageEmployeeCode) return {status:'NOT_FOUND',employee:null,message:'Funcionário não encontrado no Sage.'};
     const jobTitle=(first.jobTitle&&String(first.jobTitle).trim())||inferSageJobTitle(first.raw)||null;
-    return {status:'FOUND',employee:{...first,cpf:normalizeCpf(first.cpf),jobTitle}};
+    const cbo=(first.cbo&&String(first.cbo).replace(/\D/g,'').length===6?String(first.cbo).replace(/\D/g,''):null)||inferSageCbo(first.raw)||null;
+    return {status:'FOUND',employee:{...first,cpf:normalizeCpf(first.cpf),jobTitle,cbo}};
   }
 
   async createFromLookup(actorId:number,jobId:number,groupId:number,phoneInput:string|undefined,meta:RequestMeta):Promise<number>{
@@ -74,7 +76,7 @@ export class EmployeeService {
     const e=result.employee;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(e.birthDate)) throw badRequest('O Sage não retornou uma data de nascimento válida. Cadastro bloqueado.');
     let phone='';try{phone=normalizeEmployeePhone(phoneInput??e.phone??'');}catch{throw badRequest('Telefone deve possuir DDD e 10 ou 11 dígitos.');}
-    const snapshot={...(e.raw??e),...(phone?{telefone_payhub:phone}:{})};
+    const snapshot={...(e.raw??e),...(e.jobTitle?{funcao_atual:e.jobTitle}:{}),...(e.cbo?{cbo_atual:e.cbo,cbo2002:e.cbo}:{}),...(phone?{telefone_payhub:phone}:{})};
     const [groups]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM employee_groups WHERE id=? AND status='ACTIVE' LIMIT 1`,[groupId]);
     if(!groups[0]) throw badRequest('Grupo inválido ou inativo.');
     const conn=await this.pool.getConnection();
@@ -105,7 +107,7 @@ export class EmployeeService {
     const patch=sageEmployeePatch(e);
     await this.pool.execute(`UPDATE employees SET name=?,birth_date=?,admission_date=?,job_title=?,sage_status=?,sage_snapshot_json=?,updated_at=UTC_TIMESTAMP() WHERE id=?`,[patch.name,patch.birthDate,patch.admissionDate,patch.jobTitle,patch.sageStatus,patch.snapshotJson,employeeId]);
     const refreshedPayrolls=await this.refreshUnsignedPayrollDocuments(employeeId);
-    await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_SAGE_SYNC_APPLIED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,jobTitle:patch.jobTitle,sageStatus:patch.sageStatus,refreshedUnsignedPayrolls:refreshedPayrolls}});
+    await this.audit.record({actorUserId:actorId,action:'EMPLOYEE_SAGE_SYNC_APPLIED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,jobTitle:patch.jobTitle,cbo:patch.cbo,sageStatus:patch.sageStatus,refreshedUnsignedPayrolls:refreshedPayrolls}});
   }
 
   private async refreshUnsignedPayrollDocuments(employeeId:number):Promise<number>{

@@ -160,3 +160,13 @@ Consulte `DEPLOY-HOTFIX-0.4.5.md`.
 - Connector Sage 3.1.4.
 
 Consulte `DEPLOY-HOTFIX-0.4.8.md`.
+
+
+## Versão 0.4.9 — CBO explícito do Sage
+
+- Sage Connector 3.1.5 passa a enviar o CBO como campo canônico do funcionário.
+- API normaliza e persiste `cbo_atual`/`cbo2002` no snapshot usado pelos PDFs.
+- Corrige holerite com função preenchida e CBO exibido como `-`.
+- Sem migration de banco.
+
+Consulte `DEPLOY-HOTFIX-0.4.9.md`.

@@ -242,6 +242,7 @@ public sealed class SageReadOnlyClient
             ["birthDate"] = IsoDate(FirstValueFromRows(funcionarioRows.Concat(documentoRows), BirthAliases)),
             ["admissionDate"] = IsoDate(FirstValueFromRows(funcionarioRows.Concat(funcionalRows), AdmissionAliases)),
             ["jobTitle"] = jobTitle,
+            ["cbo"] = cbo,
             ["phone"] = FirstFromRows(funcionarioRows.Concat(documentoRows), PhoneAliases),
             ["status"] = sageStatus,
             ["currentSalary"] = currentSalary,
