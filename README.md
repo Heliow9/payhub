@@ -170,3 +170,13 @@ Consulte `DEPLOY-HOTFIX-0.4.8.md`.
 - Sem migration de banco.
 
 Consulte `DEPLOY-HOTFIX-0.4.9.md`.
+
+## Versão 0.5.0 — UX do Portal do Funcionário
+
+- Atualização automática dos holerites ao abrir o PWA por notificação, ao recuperar foco e ao clicar em notificações internas.
+- Header do Portal do Funcionário redesenhado e responsivo para iPhone/PWA.
+- Correção do zoom automático do Safari/iOS em inputs, selects e textareas.
+- Service Worker `payhub-shell-v7` para atualização do shell no dispositivo.
+- Sem migration de banco.
+
+Consulte `DEPLOY-0.5.0.md`.
