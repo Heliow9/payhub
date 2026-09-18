@@ -1,6 +1,7 @@
 8df650c700fc4329d24db913fe3395dac07f0e0f7586b565ac39cf7b8f2cf16c  ./.env.example
 8e653140cbc52195f7798d38f4d00014032346a91159aafe73eafa12b4c3c690  ./.gitignore
 9f62d3348794cffede46a137df753806b3922d8b925546235b3eeea0b41498c0  ./DEPLOY-0.5.0.md
+8539aba3590f0ebdb59cbc0a617ad7d247c323ad9477b96b819b755cb3aefa33  ./DEPLOY-0.5.1.md
 e80511db4592017e72c9a4f6b2cc0e8fd1cef7605200177aa9257152b825201b  ./DEPLOY-ETAPA2.md
 b5a835b0548641c7b1b0b93e665ddc3c37bc4170e776384552ae25fe1a73c44a  ./DEPLOY-ETAPA3.md
 de4eb92a654afa3ca03369e6ec2f384adad1b93af186f4c804cbcb6971be348d  ./DEPLOY-HOTFIX-0.3.1.md
@@ -17,10 +18,10 @@ a21548c4eb418b9d9a4afbff47dde2368f0c31b70ebd69cb635bc814d26a9e8b  ./DEPLOY-HOTFI
 ea7d1b9f160eb061668dbc08fd170e6a6734ea6943ee0108a83d33e361c3e7c0  ./DEPLOY-HOTFIX-0.4.7.md
 bacf82dc19556a890216f88a5a85b983fcaa42fb7c8088d5dc962e9f2cc0b66f  ./DEPLOY-HOTFIX-0.4.8.md
 9550b418b099f53cfc72df8d28b821d71e50a6399803553a6be555644c044a7d  ./DEPLOY-HOTFIX-0.4.9.md
-42001c175a32d425d4578ce80660db7bf180a2da7cd21310323d7526890963a3  ./README.md
-a0ad50640139a524f86591157145bf1d4674ea9c065bfea21558f0f7b04430c8  ./VERSION
+83ac51533a50445320e388bc124751ac59434e44c875bfa5482253b300306bde  ./README.md
+aba951626c8690ce493cbc8f018205bb468003f61fbf00fd3d3c71cebabc0177  ./VERSION
 ced27599e0c015ca294dfc103a6c3a749bef310af65f9eae0f6992aa489e10d1  ./apps/android/README.md
-a7b6fc9ea47a62a6b7d3c2ea8ba52ebda0397c2df3df3d178bd64afa1a1f5bb6  ./apps/android/app/build.gradle.kts
+52def84803d7d880d650467a75fa50d83e4a3464daaaecc0cc0e5386c0b1fabf  ./apps/android/app/build.gradle.kts
 a2e5d040c3d8bf83ed5cdbd9df222f9d744854d7e1e597624168dc525dd2b7d9  ./apps/android/app/proguard-rules.pro
 c0c79f50560717c1421b574d68f7dba581c534426dc6aba7b092e4bd7056aa86  ./apps/android/app/src/main/AndroidManifest.xml
 835d714c8a1f7691c2ba69e8570e3c7becf9102bb06dfcfd634ed3856a146c60  ./apps/android/app/src/main/java/br/com/payhub/app/MainActivity.kt
@@ -128,7 +129,7 @@ f6526ad46c52841ac2455bd3974617b0dd51e24e96a70dde09fc8b82a03b2c89  ./apps/api/dis
 740e57fe8627e2c22be72872580fd9d128e2db2ac0e9c48a7514a6d0f0a500a9  ./apps/api/dist/services/signature.service.js
 7ff84c1e0150ac05e7f2f659213e8aed0725cc9ad26ad295c80affd3c8f54bf8  ./apps/api/dist/services/storage.service.js
 07fb0abbacc58a3c83cc9b4a543673f53ee23ed140e67e9fa53c52d7148d2157  ./apps/api/dist/worker/main.js
-6ea6a9b90c287224f9f4ea98b33166ce3804972d3012b8d7fc9d24bb6a1c7ce5  ./apps/api/package.json
+67e11a67efd62c6f70b4f0e99e48040cb15af8f412369b04d5ba76a2915f1188  ./apps/api/package.json
 fd380fb4ab56a2ba993fc09a40fa0444cb36af46cf7ccb2b35147a0c6bbe114d  ./apps/api/src/app.test.ts
 e65e199cae240a63679ad00dea1eacc3bd95da5d0a3bf968b1236de2cf63e793  ./apps/api/src/app.ts
 b58e25ce2ac1f4f2ea7c8d0143e107e162fd5779414b4f7b6d92714b5dc246f9  ./apps/api/src/config/env.ts
@@ -198,7 +199,7 @@ e082843e73c3daf02a6a234dfbf924e6ac2e967eaab0d69669f8240fd9cd21c1  ./apps/api/src
 05f2773b2951f8d10902987e354e4b27e4b4ad96723f95c542b5d06ce820ec25  ./apps/api/src/routes/connector-agent.routes.ts
 05075c7db98bbdcd92425e913812542ec0447bb1c71bd23e8eca3cad1614e710  ./apps/api/src/routes/connectors.routes.ts
 fc66d00479ccaa7d9fc2f25e9c39cd355cc896611701bae4673a6f8c6211849e  ./apps/api/src/routes/dashboard.routes.ts
-c5ff68f468c96cb2f7db32e4cdfd4ece3f1645ab59c7501e986cbcb3bffcb8bb  ./apps/api/src/routes/employees.routes.ts
+014bd19b506611230d2ac61971dd04bd5d6afd7b26bae08bf045fe3cb5d438c0  ./apps/api/src/routes/employees.routes.ts
 6d1b0076a94f9572e3ac9797db43bb6a19a4784a39351c2cf55c2f391c57889b  ./apps/api/src/routes/groups.routes.ts
 15bdd516dfd3cfec2feba0ddb86d528e1dd432065403f359344a2f3346f674aa  ./apps/api/src/routes/health.routes.ts
 2fd1e4ef21264f3c76fab3bcd1e00f3e26dc6a033a4ef79574ebce71ea341039  ./apps/api/src/routes/import-jobs.routes.ts
@@ -215,7 +216,7 @@ d3178d4c758e0a918a912d450dde6ecd5f54b26f24967d46bcad46d5857158b2  ./apps/api/src
 d86d54abdabfcde9dc9b478f0e79f9bac738088c02062afaf733424a5c49199a  ./apps/api/src/services/connector.service.ts
 4f523fa37b27c1d73e3652cadf8dec6b267b2e34deb3261671a53921c2db963d  ./apps/api/src/services/employee-data.ts
 f9f50b7490812e805b258b8ab18f6e7f5554689725861bc4adf4c4c0ea26e894  ./apps/api/src/services/employee-delete-policy.ts
-0ddf4d4f92cb05cab2b5e151e93185b1eb1150071f4c7f5d18b09b0b3efb6e67  ./apps/api/src/services/employee.service.ts
+8274b523039f7ad446179e5110304b6199fd65ae7718b00b8e9abec948d6a661  ./apps/api/src/services/employee.service.ts
 9de8d7b1403910c3b1404ac8ecee669e4a684a1ba9e010d5a744fff9c9c0c02a  ./apps/api/src/services/group.service.ts
 629dc14741a84280a35d3a92a681c84e850469b64bccc04baaac38b540775bef  ./apps/api/src/services/normalizer.service.ts
 5b103dae8821d00b582b8227da1349ba14c0e99259af39b840d6a52f250ca83b  ./apps/api/src/services/notification-policy.ts
@@ -242,7 +243,7 @@ c5fad6aa09828feb0f4c840088f9dec9acea5d8684d8799c8ef6a1cbf9f3694c  ./apps/api/src
 a40104d20635e269c98b95879438c60cb02a03aa46e133ebd334d832d691d341  ./apps/api/src/worker/main.ts
 7a3f4e76d3c21f9f56d565095859137f8d236188a6cada3e8b3b903265b4d68a  ./apps/api/tsconfig.json
 ceccff98bc111f8c142f6f2ea403eaf03fbf200481144c5943167b72aef19df9  ./apps/dashboard/index.html
-6640797a73cf6f7aab865066707b19649e31d34aefa37e6403210a49d4abb30c  ./apps/dashboard/package.json
+58509db985fe91161921da5619abba3d49d5147b59cffb849acb4a55307e37ec  ./apps/dashboard/package.json
 9ba44b918b8f7f7c15de775a5f371a71fbcf8f14f55217a2d5dbd836feb9247c  ./apps/dashboard/public/assets/apple-touch-icon.png
 be59ec59c60842695c715709789b06e9a45184986d9c751a1c7a5758f81b5004  ./apps/dashboard/public/assets/favicon-32.png
 53dae6e1bd5911e8a7f86deb0a16554bbec05aaca81de2433f13d4220a4df9ec  ./apps/dashboard/public/assets/icon-192.png
@@ -252,9 +253,9 @@ c11e5d545abfb47dc3f37b8b6fe459b4cfa314ef1b590f0690a107a83979fe6f  ./apps/dashboa
 190aa63ccdae342b68947de6eb1f937c576958562e33a74fd0f8aa233dfe07b0  ./apps/dashboard/public/assets/payhub-logo.png
 ce5884b4968eef2dd0a49fd1406516a01a954b6599c0d9e40546864a82f4293d  ./apps/dashboard/public/assets/payhub-mark.png
 1363eb2c0b1d3a743f6ab1c225d35a76cf57fba9d827d6271300246ad2f08c7d  ./apps/dashboard/public/manifest.webmanifest
-9ba8c20a9f732683cf6a3e38be97aaa47232c3fc5226e228b858174a9d287d20  ./apps/dashboard/public/sw.js
+89401e016c1c32e9d45b83920b59708803ab624cf485192d3436e38584339639  ./apps/dashboard/public/sw.js
 42dd8497a5c7aace24b837ba280b89e19b2b742a2dba851fa2dabea7b835f309  ./apps/dashboard/src/App.tsx
-154dfde4bbd4c7fc72c03f3de34ac6f71a791a66eb521b04277123e2fe1bac33  ./apps/dashboard/src/api/client.ts
+952c327e1874f2adf5bbcc225ec074f1b3e76032ba25e7cfd82231a6f931a482  ./apps/dashboard/src/api/client.ts
 7e96e0803b253502e29dc9860a9d74b9ccc27dddc6cb7530b25a5cd7958a2db8  ./apps/dashboard/src/auth/AuthProvider.test.tsx
 b73dff8a567e4fe240a7000dece0f0a50c79d3aea1ec99ae4a990842507dc758  ./apps/dashboard/src/auth/AuthProvider.tsx
 a695e7cf6e830f70e996c3ce2c4ba7b2dcbb1b233aa4986842a2ae5f76407784  ./apps/dashboard/src/auth/remember-email.test.ts
@@ -281,7 +282,7 @@ aa944f2e11223655086bcc6865c82b52532ee136b69bbf53996c89d1f1998b59  ./apps/dashboa
 d61aee9b652d2cd522cff07214d202cfc5c07cd5a5148458ef4441eea5b039a3  ./apps/dashboard/src/pages/AuditPage.tsx
 c05c69bf0658a37dcf8b0fad6f923d23c77c6349a8e0c635bce2cfafb3231d85  ./apps/dashboard/src/pages/DashboardPage.test.tsx
 eb6135643935bb41e7551c52fea4a722a99039fb5f2b25870aec533fd4dc0fad  ./apps/dashboard/src/pages/DashboardPage.tsx
-6d550377c8ffd14c5551f16411487933ccc3b00ccde65551e028f67d23f1ed4f  ./apps/dashboard/src/pages/EmployeePortalPage.tsx
+bb0112d2893b5297deec4f71acf1662a8228770ba113e0a0ea2218c2e8ebb1e9  ./apps/dashboard/src/pages/EmployeePortalPage.tsx
 faffd91b32c45491f3b6e1130d81086d11b32ceee4ded4cab998ce4c722dbf82  ./apps/dashboard/src/pages/EmployeesPage.tsx
 67203bedfd1073fa84304e6eeb0afb68a8ea65b07ab669a1a01189ed8e67042a  ./apps/dashboard/src/pages/GroupsPage.tsx
 4405be60a59d705958cbb609ba85461d5ca04c74ca4b226332b75e3c898ef30c  ./apps/dashboard/src/pages/LoginPage.test.tsx
@@ -295,7 +296,7 @@ d950e5d8007844d4a316117f9b2271ab097927fbe684b21dd864132f0b5dc7dc  ./apps/dashboa
 9e2e002d09518166d25345503acd875eae2fb203835f3c4455cf68b06277d478  ./apps/dashboard/src/push.test.ts
 34de3a08d7a5eb6aa9c9d0d8ba63aa62501529af5864bdab67b9029ba02543c7  ./apps/dashboard/src/push.ts
 5545ea6995761ba209199dc2bd8ca510fe8d0a86608c1986c13cc0f1ac8a181d  ./apps/dashboard/src/signature-evidence.ts
-d954f1826457f8bf45fe1f45aac18dbe7e044cdbd024f8a7c8cc67a0db15a71f  ./apps/dashboard/src/styles.css
+1c73aa9d51dcc6eb6763c29d38d715e0de4d8188a1519e187c2d50b44f71035c  ./apps/dashboard/src/styles.css
 91a3c8962a0edcb956206a501d943fe99e1c78c6d4d8b5c9a948a3362c75978c  ./apps/dashboard/src/test-setup.ts
 6c311f94ebb544d14f340301c7d8de31eff9ba02b656995058a374c6ffa6d334  ./apps/dashboard/tsconfig.json
 43e2e7bd9413a5eba77d0dacb7a0f1a4025d56666dcd1369f534cf77702fcc6f  ./apps/dashboard/vite.config.ts
@@ -325,5 +326,5 @@ a8ee5b6235320635afb5b8e24918071950ee68e416359ae3b2062793df2ee0f3  ./docs/superpo
 4a9095c015622c705c4fe07bb6f5598460563cc34b33afc6d599d269e02a8cd4  ./docs/superpowers/specs/2026-09-17-payhub-0.4.1-sage-signature-pwa-design.md
 ddbb423f28fee77dc47a18466610736841a090249ee13c0b4605848cc0673084  ./docs/superpowers/specs/2026-09-17-payhub-ux-push-employee-profile-design.md
 ea6e4b5326fe7bf0c4543f87f31eabca1cd3116a83eb60d22f0e6ec5aa792500  ./ecosystem.config.cjs
-f6949204ec41c30731522fa1376b1f0cdc18c72d905397c1e7c031fd4844534d  ./package.json
+7e63773133b8c3a9d2edc7e7db25b4661d38700a3c64d91f2f756ca221c07219  ./package.json
 bbe73e4f36c05915287c63ffd947396a7517885a4f0521788ecff477d76bca61  ./tsconfig.base.json

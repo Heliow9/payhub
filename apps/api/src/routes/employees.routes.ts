@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requestMeta } from '../core/request.js';
-import { csrf, requireMaster, requireUser } from '../middleware/auth.js';
+import { csrf, requireEmployee, requireMaster, requireUser } from '../middleware/auth.js';
 import type { EmployeeService } from '../services/employee.service.js';
 import type { PayrollRunService } from '../services/payroll-run.service.js';
 
@@ -13,6 +13,7 @@ const manualSearchSchema = z.object({
 
 export function employeesRoutes(service: EmployeeService, runs: PayrollRunService) {
   const r = Router();
+  r.get('/me/profile',requireEmployee,async(req,res,next)=>{try{res.json({employee:await service.selfProfile(req.principal!.id)});}catch(e){next(e);}});
   r.use(requireUser);
 
   r.get('/', async (req, res, next) => { try { res.json({ employees: await service.list(String(req.query.search ?? '')) }); } catch (e) { next(e); } });

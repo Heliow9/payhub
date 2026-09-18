@@ -145,6 +145,35 @@ export class EmployeeService {
     return {...row,hasSignedPayroll:Number(signedRows[0]?.value??0)>0,sageSnapshot:parseJson(row.sage_snapshot_json,null),sage_snapshot_json:undefined};
   }
 
+  async selfProfile(employeeId:number):Promise<Record<string,unknown>>{
+    const [rows]=await this.pool.execute<RowDataPacket[]>(
+      `SELECT e.id,e.name,e.cpf,e.company_code companyCode,e.sage_employee_code sageEmployeeCode,
+              DATE_FORMAT(e.birth_date,'%Y-%m-%d') birthDate,DATE_FORMAT(e.admission_date,'%Y-%m-%d') admissionDate,
+              e.job_title jobTitle,e.phone,e.sage_status sageStatus,e.status,g.name groupName,
+              e.sage_snapshot_json sageSnapshotJson,c.activated_at activatedAt,c.last_login_at lastLoginAt,
+              CASE WHEN c.pin_hash IS NULL THEN 0 ELSE 1 END hasPin
+         FROM employees e
+         JOIN employee_groups g ON g.id=e.group_id
+         LEFT JOIN employee_credentials c ON c.employee_id=e.id
+        WHERE e.id=? LIMIT 1`,[employeeId]);
+    const row=rows[0];if(!row)throw notFound('Funcionário não encontrado.');
+    const cbo=sageSnapshotValue(row.sageSnapshotJson,cboAliases);
+    const [stats]=await this.pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) total,
+              SUM(CASE WHEN status='SIGNED' THEN 1 ELSE 0 END) signedCount,
+              SUM(CASE WHEN status IN ('SIGNATURE_REQUESTED','VIEWED') THEN 1 ELSE 0 END) pendingCount
+         FROM payrolls WHERE employee_id=? AND is_current=1`,[employeeId]);
+    const stat=stats[0]??{};
+    return {
+      id:Number(row.id),name:String(row.name),cpf:String(row.cpf),companyCode:String(row.companyCode),
+      sageEmployeeCode:String(row.sageEmployeeCode),birthDate:row.birthDate?String(row.birthDate):null,
+      admissionDate:row.admissionDate?String(row.admissionDate):null,jobTitle:row.jobTitle?String(row.jobTitle):null,
+      cbo,phone:row.phone?String(row.phone):null,sageStatus:row.sageStatus?String(row.sageStatus):null,
+      status:String(row.status),groupName:String(row.groupName),activatedAt:row.activatedAt??null,lastLoginAt:row.lastLoginAt??null,
+      hasPin:Number(row.hasPin??0)===1,totalPayrolls:Number(stat.total??0),signedPayrolls:Number(stat.signedCount??0),pendingPayrolls:Number(stat.pendingCount??0)
+    };
+  }
+
   async moveGroup(actorId:number,employeeId:number,toGroupId:number,meta:RequestMeta):Promise<void>{
     const [employeeRows]=await this.pool.execute<RowDataPacket[]>(`SELECT group_id groupId FROM employees WHERE id=? LIMIT 1`,[employeeId]);
     const employee=employeeRows[0];if(!employee)throw notFound('Funcionário não encontrado.');

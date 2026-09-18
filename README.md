@@ -180,3 +180,15 @@ Consulte `DEPLOY-HOTFIX-0.4.9.md`.
 - Sem migration de banco.
 
 Consulte `DEPLOY-0.5.0.md`.
+
+## Versão 0.5.1 — Perfil do funcionário e redesign mobile
+
+- Header do Portal do Funcionário redesenhado para PWA e Android.
+- Avatar abre o novo **Meu perfil**.
+- Perfil apresenta dados cadastrais já existentes no banco e sincronizados com o Sage: matrícula, CPF, nascimento, admissão, função/cargo, CBO, telefone, grupo e situação.
+- Perfil inclui indicadores de holerites e informações de acesso.
+- Botão de saída movido para o perfil.
+- Service Worker `payhub-shell-v8`.
+- Sem migration de banco.
+
+Consulte `DEPLOY-0.5.1.md`.
