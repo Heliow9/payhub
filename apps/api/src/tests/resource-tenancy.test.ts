@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { GroupService } from '../services/group.service.js';
 import { EmployeeService } from '../services/employee.service.js';
+import { PayrollService } from '../services/payroll.service.js';
+import { SignatureService } from '../services/signature.service.js';
 
 const context={kind:'USER' as const,companyId:1,userId:7,role:'MASTER' as const};
 
@@ -23,5 +25,20 @@ describe('isolamento de grupos e funcionários',()=>{
     const service=new EmployeeService(pool as never,connector as never,{record:async()=>undefined} as never,{} as never);
     await expect(service.createFromLookup(context,5,3,undefined,{ipAddress:null,userAgent:null})).resolves.toBe(44);
     expect(sqlLog.join('\n')).not.toMatch(/UPDATE employee_identities SET pin_hash|employee_credentials/i);
+  });
+});
+
+describe('isolamento de holerites e acesso histórico',()=>{
+  it('exportação trata ID de outra empresa como não encontrado',async()=>{
+    const pool={execute:async(sql:string,params:unknown[])=>{expect(sql).toContain('p.company_id=?');expect(params[0]).toBe(1);return[[]];}};
+    const service=new PayrollService(pool as never,{} as never,{} as never,{} as never);
+    await expect(service.exportDocuments(context,[200],{ipAddress:null,userAgent:null})).rejects.toMatchObject({statusCode:404});
+  });
+
+  it('vínculo histórico não pode assinar um holerite pendente',async()=>{
+    const historical={kind:'EMPLOYEE' as const,companyId:1,employeeId:8,identityId:10,accessMode:'HISTORICAL' as const};
+    const service=new SignatureService({} as never,{} as never,{} as never,{} as never,{} as never,{} as never);
+    await expect(service.signFromPortal(historical,99,'123456',undefined,'PWA',{ipAddress:null,userAgent:null}))
+      .rejects.toMatchObject({statusCode:403,code:'HISTORICAL_ACCESS_ONLY'});
   });
 });
