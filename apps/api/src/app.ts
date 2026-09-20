@@ -18,6 +18,7 @@ import { SettingsService } from './services/settings.service.js';
 import { SignatureService } from './services/signature.service.js';
 import { StorageService } from './services/storage.service.js';
 import { NotificationService } from './services/notification.service.js';
+import { CompanyProvisioningService } from './services/company-provisioning.service.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { usersRoutes } from './routes/users.routes.js';
 import { employeesRoutes } from './routes/employees.routes.js';
@@ -35,11 +36,11 @@ import { notificationsRoutes } from './routes/notifications.routes.js';
 
 export interface PayHubServices {
   audit: AuditService; auth: AuthService; connector: ConnectorService; employees: EmployeeService; groups: GroupService;
-  runs: PayrollRunService; payrolls: PayrollService; settings: SettingsService; signatures: SignatureService; storage: StorageService; notifications: NotificationService;
+  runs: PayrollRunService; payrolls: PayrollService; settings: SettingsService; signatures: SignatureService; storage: StorageService; notifications: NotificationService; provisioning: CompanyProvisioningService;
 }
 
 export function createServices(pool:Pool,env:Env):PayHubServices{
-  const audit=new AuditService(pool);const auth=new AuthService(pool,env,audit);const connector=new ConnectorService(pool,audit);const storage=new StorageService(env.DOCUMENT_STORAGE_PATH);const notifications=new NotificationService(pool,env);const settings=new SettingsService(pool,audit);const employees=new EmployeeService(pool,connector,audit,storage);const groups=new GroupService(pool,audit);const runs=new PayrollRunService(pool,connector,audit);const payrolls=new PayrollService(pool,storage,audit,notifications);const signatures=new SignatureService(pool,storage,settings,audit,notifications,env);return{audit,auth,connector,employees,groups,runs,payrolls,settings,signatures,storage,notifications};
+  const audit=new AuditService(pool);const auth=new AuthService(pool,env,audit);const connector=new ConnectorService(pool,audit);const storage=new StorageService(env.DOCUMENT_STORAGE_PATH);const notifications=new NotificationService(pool,env);const settings=new SettingsService(pool,audit);const employees=new EmployeeService(pool,connector,audit,storage);const groups=new GroupService(pool,audit);const runs=new PayrollRunService(pool,connector,audit);const payrolls=new PayrollService(pool,storage,audit,notifications);const signatures=new SignatureService(pool,storage,settings,audit,notifications,env);const provisioning=new CompanyProvisioningService(pool);return{audit,auth,connector,employees,groups,runs,payrolls,settings,signatures,storage,notifications,provisioning};
 }
 
 export function createApp(pool:Pool,env:Env,services=createServices(pool,env)){

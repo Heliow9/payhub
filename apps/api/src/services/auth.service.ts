@@ -2,7 +2,7 @@ import type { Pool, PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql
 import type { Env } from '../config/env.js';
 import { badRequest, notFound, unauthorized } from '../core/errors.js';
 import { hashSecret, isSixDigitPin, isValidCpf, needsSecretRehash, normalizeCpf, randomToken, sha256, verifySecret } from '../core/security.js';
-import type { EmployeePrincipal, Principal, RequestMeta } from '../core/types.js';
+import type { EmployeePrincipal, Principal, RequestMeta, UserContext } from '../core/types.js';
 import { AuditService } from './audit.service.js';
 
 export interface LoginResult { principal: Principal; token: string; csrfToken: string; expiresAt: Date; client?: ClientKind; }
@@ -254,7 +254,7 @@ export class AuthService {
     }
   }
 
-  async createAnalyst(actorId: number, name: string, email: string, password: string, meta: RequestMeta): Promise<number> {
+  async createAnalyst(context: UserContext, name: string, email: string, password: string, meta: RequestMeta): Promise<number> {
     const cleanName = name.trim(); const cleanEmail = email.trim().toLowerCase();
     if (cleanName.length < 2) throw badRequest('Nome inválido.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) throw badRequest('E-mail inválido.');
@@ -262,10 +262,10 @@ export class AuthService {
     const hash = await hashSecret(password);
     try {
       const [result] = await this.pool.execute<ResultSetHeader>(
-        `INSERT INTO users (name,email,password_hash,role,status,created_at,updated_at) VALUES (?,?,?,'ANALISTA','ACTIVE',UTC_TIMESTAMP(),UTC_TIMESTAMP())`,
-        [cleanName, cleanEmail, hash]
+        `INSERT INTO users (company_id,name,email,password_hash,role,status,created_at,updated_at) VALUES (?,?,?,?,'ANALISTA','ACTIVE',UTC_TIMESTAMP(),UTC_TIMESTAMP())`,
+        [context.companyId, cleanName, cleanEmail, hash]
       );
-      await this.audit.record({ actorUserId:actorId, action:'ANALYST_CREATED', targetType:'USER', targetId:result.insertId, meta, metadata:{email:cleanEmail} });
+      await this.audit.record({ actorUserId:context.userId, action:'ANALYST_CREATED', targetType:'USER', targetId:result.insertId, meta, metadata:{email:cleanEmail,companyId:context.companyId} });
       return result.insertId;
     } catch (error) {
       if ((error as {code?:string}).code === 'ER_DUP_ENTRY') throw badRequest('Já existe um usuário com este e-mail.');
