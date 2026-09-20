@@ -148,9 +148,9 @@ export async function notifyCompanyOperationalAlerts(
 }
 
 export async function workerCycle(pool: Pool, services: WorkerServices, env: Env, now = new Date()): Promise<void> {
-  await notifyCompanyOperationalAlerts(pool, services, env.CONNECTOR_OFFLINE_SECONDS, now);
   await normalizeCompanyJobs(pool, services);
   await scheduleCompanyDue(pool, services, now);
+  await notifyCompanyOperationalAlerts(pool, services, env.CONNECTOR_OFFLINE_SECONDS, now);
 }
 
 async function main(): Promise<void> {

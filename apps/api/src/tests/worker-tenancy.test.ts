@@ -1,8 +1,70 @@
-import { describe, expect, it } from 'vitest';
+import webpush from 'web-push';
+import { describe, expect, it, vi } from 'vitest';
 import { NotificationService } from '../services/notification.service.js';
-import { normalizeCompanyJobs, scheduleCompanyDue } from '../worker/main.js';
+import { normalizeCompanyJobs, scheduleCompanyDue, workerCycle } from '../worker/main.js';
 
 describe('worker e notificações multiempresa', () => {
+  it('limita o tempo de espera de cada envio Web Push', async () => {
+    const send = vi.spyOn(webpush, 'sendNotification').mockResolvedValue({} as never);
+    const pool = {
+      execute: async (sql: string) => {
+        if (sql.includes('FROM push_subscriptions')) return [[{
+          id: 7,
+          endpoint: 'https://push.example.test/subscription',
+          p256dh: 'key',
+          authSecret: 'secret',
+        }]];
+        return [{ affectedRows: 1 }];
+      },
+    };
+    const service = new NotificationService(pool as never, {
+      VAPID_SUBJECT: '', VAPID_PUBLIC_KEY: '', VAPID_PRIVATE_KEY: '',
+    } as never);
+
+    await (service as any).sendPush(
+      { companyId: 1, type: 'USER', id: 10, role: 'MASTER' },
+      { category: 'SYSTEM', title: 'Teste', body: 'Teste', notificationId: 99 },
+    );
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(send.mock.calls[0]?.[2]).toMatchObject({ timeout: 10_000 });
+    send.mockRestore();
+  });
+
+  it('processa a fila principal antes dos alertas operacionais', async () => {
+    const order: string[] = [];
+    const pool = {
+      query: async (sql: string) => {
+        if (sql.includes("job_type='PAYROLL_IMPORT'")) {
+          order.push('normalizacao');
+          return [[]];
+        }
+        return [[]];
+      },
+      execute: async (sql: string) => {
+        if (sql.includes('FROM group_schedules')) order.push('agendamentos');
+        return [[]];
+      },
+    };
+    const services = {
+      connector: {
+        markOfflineStale: async () => {
+          order.push('alertas');
+          return [];
+        },
+      },
+      notifications: { notifyAdmins: async () => undefined },
+      payrolls: { normalizeCompletedJob: async () => ({ created: 0, unchanged: 0, skipped: 0 }) },
+      runs: { startGroup: async () => ({ runId: 1, jobId: 1 }) },
+    };
+
+    await workerCycle(pool as never, services as never, {
+      CONNECTOR_OFFLINE_SECONDS: 60,
+    } as never, new Date('2026-09-21T12:00:00Z'));
+
+    expect(order).toEqual(['normalizacao', 'agendamentos', 'alertas']);
+  });
+
   it('notifica somente administradores ativos da empresa do alerta', async () => {
     const recipients: Array<{ companyId: number; id: number }> = [];
     const pool = {
