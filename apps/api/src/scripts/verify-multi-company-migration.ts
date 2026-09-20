@@ -66,6 +66,34 @@ SELECT 'signature_request_orphans', COUNT(*), 0
   LEFT JOIN payrolls p ON p.id=sr.payroll_id
   LEFT JOIN employees e ON e.id=sr.employee_id
  WHERE p.id IS NULL OR e.id IS NULL OR p.employee_id<>e.id
+UNION ALL
+SELECT 'employee_group_company_mismatch', COUNT(*), 0
+  FROM employees e JOIN employee_groups g ON g.id=e.group_id
+ WHERE e.company_id<>g.company_id
+UNION ALL
+SELECT 'payroll_run_group_company_mismatch', COUNT(*), 0
+  FROM payroll_runs r JOIN employee_groups g ON g.id=r.group_id
+ WHERE r.company_id<>g.company_id
+UNION ALL
+SELECT 'schedule_execution_company_mismatch', COUNT(*), 0
+  FROM schedule_executions x JOIN employee_groups g ON g.id=x.group_id
+ WHERE x.company_id<>g.company_id
+UNION ALL
+SELECT 'connector_log_company_mismatch', COUNT(*), 0
+  FROM connector_job_logs l JOIN import_jobs j ON j.id=l.job_id
+ WHERE l.company_id<>j.company_id
+UNION ALL
+SELECT 'connector_batch_company_mismatch', COUNT(*), 0
+  FROM connector_raw_batches b JOIN import_jobs j ON j.id=b.job_id
+ WHERE b.company_id<>j.company_id
+UNION ALL
+SELECT 'active_companies_without_settings', COUNT(*), 0
+  FROM companies c LEFT JOIN app_settings s ON s.company_id=c.id
+ WHERE c.status='ACTIVE' AND s.id IS NULL
+UNION ALL
+SELECT 'audit_actor_company_mismatch', COUNT(*), 0
+  FROM audit_logs a JOIN users u ON u.id=a.actor_user_id
+ WHERE a.company_id<>u.company_id
 `;
 
 export async function verifyMultiCompanyMigration(pool: Pick<Pool, 'query'>): Promise<MigrationCheck[]> {

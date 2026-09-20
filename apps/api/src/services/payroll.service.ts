@@ -57,7 +57,7 @@ export class PayrollService{
     }
     await this.pool.execute(`UPDATE import_jobs SET normalized_at=UTC_TIMESTAMP(),updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[jobId,job.companyId]);
     if(job.payrollRunId){const status=skipped>0?'PARTIAL':'COMPLETED';await this.pool.execute(`UPDATE payroll_runs SET status=?,success_count=?,failure_count=?,message=?,finished_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[status,created+unchanged,skipped,`${created} novo(s), ${unchanged} sem alteração, ${skipped} ignorado(s).`,job.payrollRunId,job.companyId]);}
-    await this.notifications.notifyAdmins({category:'IMPORT_COMPLETED',title:'Importação de holerites concluída',body:`${created} novo(s), ${unchanged} sem alteração e ${skipped} ignorado(s).`,url:'/#/payrolls',dedupKey:`import-completed:${jobId}`});
+    await this.notifications.notifyAdmins(Number(job.companyId),{category:'IMPORT_COMPLETED',title:'Importação de holerites concluída',body:`${created} novo(s), ${unchanged} sem alteração e ${skipped} ignorado(s).`,url:'/#/payrolls',dedupKey:`import-completed:${jobId}`});
     return{created,unchanged,skipped};
   }
 
@@ -81,9 +81,9 @@ export class PayrollService{
     await this.pool.execute(`INSERT INTO signature_requests (payroll_id,employee_id,requested_by_user_id,status,acceptance_text,acceptance_text_hash,requested_at) VALUES (?,?,?,'PENDING',?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE requested_by_user_id=VALUES(requested_by_user_id),status=IF(status='SIGNED',status,'PENDING'),acceptance_text=VALUES(acceptance_text),acceptance_text_hash=VALUES(acceptance_text_hash),requested_at=IF(status='SIGNED',requested_at,UTC_TIMESTAMP())`,[payrollId,row.employeeId,context.userId,acceptanceText,hash]);
     await this.pool.execute(`UPDATE payrolls SET status=IF(status='SIGNED',status,'SIGNATURE_REQUESTED'),released_at=COALESCE(released_at,UTC_TIMESTAMP()),updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[payrollId,context.companyId]);
     const [requestRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM signature_requests WHERE payroll_id=? LIMIT 1`,[payrollId]);const requestId=Number(requestRows[0]!.id);
-    await this.audit.record({actorUserId:context.userId,action:'PAYROLL_SIGNATURE_REQUESTED',targetType:'PAYROLL',targetId:payrollId,meta,metadata:{companyId:context.companyId,signatureRequestId:requestId}});
-    const [notifyRows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.year,p.month,p.payroll_type_label typeLabel,e.name FROM payrolls p JOIN employees e ON e.id=p.employee_id WHERE p.id=? LIMIT 1`,[payrollId]);const n=notifyRows[0];
-    await this.notifications.notifyEmployee(Number(row.employeeId),{category:'PAYROLL_AVAILABLE',title:'Novo holerite para assinatura',body:n?`${String(n.typeLabel)} de ${String(n.month).padStart(2,'0')}/${n.year} está disponível.`:'Seu holerite está disponível para assinatura.',url:'/#/employee',dedupKey:`payroll-release:${payrollId}`});
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'PAYROLL_SIGNATURE_REQUESTED',targetType:'PAYROLL',targetId:payrollId,meta,metadata:{signatureRequestId:requestId}});
+    const [notifyRows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.year,p.month,p.payroll_type_label typeLabel,e.name FROM payrolls p JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id WHERE p.id=? AND p.company_id=? LIMIT 1`,[payrollId,context.companyId]);const n=notifyRows[0];
+    await this.notifications.notifyEmployee(context.companyId,Number(row.employeeId),{category:'PAYROLL_AVAILABLE',title:'Novo holerite para assinatura',body:n?`${String(n.typeLabel)} de ${String(n.month).padStart(2,'0')}/${n.year} está disponível.`:'Seu holerite está disponível para assinatura.',url:'/#/employee',dedupKey:`payroll-release:${payrollId}`});
     return requestId;
   }
 

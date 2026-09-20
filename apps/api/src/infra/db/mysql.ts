@@ -3,11 +3,11 @@ import type { Env } from '../../config/env.js';
 
 export function createMySqlPool(env: Env): Pool {
   return mysql.createPool({
-    host: env.MYSQL_HOST,
-    port: env.MYSQL_PORT,
-    database: env.MYSQL_DATABASE,
-    user: env.MYSQL_USER,
-    password: env.MYSQL_PASSWORD,
+    host: env.DB_HOST,
+    port: env.DB_PORT,
+    database: env.DB_NAME,
+    user: env.DB_USER,
+    password: env.DB_PASSWORD,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,

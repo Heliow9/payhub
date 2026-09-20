@@ -3,6 +3,7 @@ import { ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthProvider';
 import { clearRememberedEmail, getRememberedEmail, saveRememberedEmail } from '../auth/remember-email';
 import { FullBrand,Brand } from '../components/Brand';
+import { CompanySelector } from '../components/CompanySelector';
 
 function cpfMask(value: string) {
   const d = value.replace(/\D/g, '').slice(0, 11);
@@ -10,7 +11,7 @@ function cpfMask(value: string) {
 }
 
 export function LoginPage() {
-  const { login, firstAccess } = useAuth();
+  const { login, firstAccess, pendingSelection, selectCompany, cancelCompanySelection } = useAuth();
   const rememberedEmail = useMemo(() => getRememberedEmail(), []);
   const [identifier, setIdentifier] = useState(rememberedEmail);
   const [rememberEmail, setRememberEmail] = useState(Boolean(rememberedEmail));
@@ -21,6 +22,7 @@ export function LoginPage() {
   const [birthDate, setBirthDate] = useState('');
   const [pin, setPin] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [selectBusy, setSelectBusy] = useState<number | null>(null);
   const employeeMode = useMemo(() => /^\d/.test(identifier.trim()), [identifier]);
 
   async function submit(e: FormEvent) {
@@ -55,6 +57,30 @@ export function LoginPage() {
     catch (err) { setError(err instanceof Error ? err.message : 'Falha no primeiro acesso.'); }
     finally { setLoading(false); }
   }
+
+  if (pendingSelection) return <main className="login-shell">
+    <section className="login-brand-panel">
+      <FullBrand className="login-full-brand"/><span className="eyebrow light">ACESSO MULTIEMPRESA</span>
+      <h1>Um acesso.<br/>Suas empresas.</h1>
+      <p>Seu CPF foi localizado em mais de uma empresa. O PayHub mantém cada vínculo e seus documentos totalmente separados.</p>
+      <div className="login-points"><span>✓ Mesmo CPF e PIN</span><span>✓ Dados isolados por empresa</span><span>✓ Histórico preservado</span></div>
+    </section>
+    <section className="login-form-panel"><div className="login-card company-login-card">
+      <div className="mobile-brand"><Brand compact/></div>
+      <CompanySelector
+        companies={pendingSelection.companies}
+        busyCompanyId={selectBusy}
+        onCancel={()=>{cancelCompanySelection();setFirst(false);setPassword('');setPin('');setConfirm('');setError('');}}
+        onSelect={async (companyId) => {
+          setSelectBusy(companyId);setError('');
+          try { await selectCompany(companyId); }
+          catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível selecionar a empresa.'); }
+          finally { setSelectBusy(null); }
+        }}
+      />
+      {error && <div className="form-error">{error}</div>}
+    </div></section>
+  </main>;
 
   return <main className="login-shell">
     <section className="login-brand-panel">

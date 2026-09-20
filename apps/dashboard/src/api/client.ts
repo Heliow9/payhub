@@ -1,6 +1,10 @@
-export type UserPrincipal={kind:'USER';id:number;name:string;email:string;role:'MASTER'|'ANALISTA';status:string};
-export type EmployeePrincipal={kind:'EMPLOYEE';id:number;name:string;cpf:string;status:string};
+export type UserPrincipal={kind:'USER';id:number;companyId:number;companyName:string;name:string;email:string;role:'MASTER'|'ANALISTA';status:'ACTIVE'|'DISABLED'};
+export type EmployeePrincipal={kind:'EMPLOYEE';id:number;identityId:number;companyId:number;companyName:string;name:string;cpf:string;status:'ACTIVE'|'DISABLED'|'TERMINATED';accessMode:'FULL'|'HISTORICAL'};
 export type Principal=UserPrincipal|EmployeePrincipal;
+export type CompanyOption={companyId:number;companyName:string;employeeId:number;name:string;status:'ACTIVE'|'TERMINATED';accessMode:'FULL'|'HISTORICAL'};
+export type AuthSession={principal:Principal;csrfToken:string};
+export type CompanySelectionOutcome={requiresCompanySelection:true;selectionToken:string;companies:CompanyOption[]};
+export type AuthOutcome=AuthSession|CompanySelectionOutcome;
 
 export class ApiError extends Error{constructor(message:string,public status:number,public code?:string,public details?:unknown){super(message);}}
 let csrfToken=sessionStorage.getItem('payhub_csrf')??'';
@@ -12,8 +16,11 @@ async function requestDownload(path:string,options:RequestInit={},fallbackFilena
 
 export const api={
   me:()=>request<{principal:Principal|null;csrfToken:string}>('/api/auth/me'),
-  login:(identifier:string,password:string)=>request<{principal:Principal;csrfToken:string}>('/api/auth/login',{method:'POST',body:json({identifier,password})}),
-  firstAccess:(cpf:string,birthDate:string,pin:string)=>request<{principal:Principal;csrfToken:string}>('/api/auth/employee-first-access',{method:'POST',body:json({cpf,birthDate,pin})}),
+  login:(identifier:string,password:string)=>request<AuthOutcome>('/api/auth/login',{method:'POST',body:json({identifier,password})}),
+  firstAccess:(cpf:string,birthDate:string,pin:string)=>request<AuthOutcome>('/api/auth/employee-first-access',{method:'POST',body:json({cpf,birthDate,pin})}),
+  selectCompany:(selectionToken:string,companyId:number)=>request<AuthSession>('/api/auth/select-company',{method:'POST',body:json({selectionToken,companyId})}),
+  companyOptions:()=>request<{companies:CompanyOption[]}>('/api/auth/companies'),
+  switchCompany:(companyId:number)=>request<AuthSession>('/api/auth/switch-company',{method:'POST',body:json({companyId,client:'WEB'})}),
   logout:()=>request<void>('/api/auth/logout',{method:'POST'}),
   dashboard:()=>request<any>('/api/dashboard'),
   users:()=>request<any>('/api/users'),createAnalyst:(body:any)=>request<any>('/api/users',{method:'POST',body:json(body)}),setUserStatus:(id:number,status:string)=>request<void>(`/api/users/${id}/status`,{method:'PATCH',body:json({status})}),

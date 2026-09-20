@@ -50,7 +50,7 @@ export class EmployeeService {
     const [existing]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM employees WHERE cpf=? AND company_id=? LIMIT 1`,[cpf,context.companyId]);
     if(existing[0]) throw conflict('Este funcionário já está cadastrado no PayHub.');
     const jobId=await this.connector.createJob({companyId:context.companyId,requestedByUserId:context.userId,jobType:'EMPLOYEE_LOOKUP_BY_CPF',scope:{cpf}});
-    await this.audit.record({actorUserId:context.userId,action:'EMPLOYEE_LOOKUP_REQUESTED',targetType:'IMPORT_JOB',targetId:jobId,meta,metadata:{companyId:context.companyId,cpfLast4:cpf.slice(-4)}});
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_LOOKUP_REQUESTED',targetType:'IMPORT_JOB',targetId:jobId,meta,metadata:{cpfLast4:cpf.slice(-4)}});
     return jobId;
   }
 
@@ -59,7 +59,7 @@ export class EmployeeService {
     const row=rows[0];if(!row)throw notFound('Funcionário não encontrado.');
     const cpf=normalizeCpf(String(row.cpf));
     const jobId=await this.connector.createJob({companyId:context.companyId,requestedByUserId:context.userId,jobType:'EMPLOYEE_LOOKUP_BY_CPF',scope:{cpf}});
-    await this.audit.record({actorUserId:context.userId,action:'EMPLOYEE_SAGE_SYNC_REQUESTED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{companyId:context.companyId,jobId,sageEmployeeCode:String(row.sageEmployeeCode)}});
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_SAGE_SYNC_REQUESTED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,sageEmployeeCode:String(row.sageEmployeeCode)}});
     return jobId;
   }
 
@@ -103,7 +103,7 @@ export class EmployeeService {
       const id=insert.insertId;
       await conn.execute(`INSERT INTO group_membership_history (employee_id,from_group_id,to_group_id,changed_by_user_id,changed_at) VALUES (?,NULL,?,?,UTC_TIMESTAMP())`,[id,groupId,context.userId]);
       await conn.commit();
-      await this.audit.record({actorUserId:context.userId,action:'EMPLOYEE_CREATED',targetType:'EMPLOYEE',targetId:id,meta,metadata:{companyId:context.companyId,groupId,sageEmployeeCode:e.sageEmployeeCode}});
+      await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_CREATED',targetType:'EMPLOYEE',targetId:id,meta,metadata:{groupId,sageEmployeeCode:e.sageEmployeeCode}});
       return id;
     }catch(error){await conn.rollback();if((error as {code?:string}).code==='ER_DUP_ENTRY') throw conflict('Funcionário já cadastrado.');throw error;}finally{conn.release();}
   }
@@ -119,7 +119,7 @@ export class EmployeeService {
     const patch=sageEmployeePatch(e);
     await this.pool.execute(`UPDATE employees SET name=?,birth_date=?,admission_date=?,job_title=?,sage_status=?,sage_snapshot_json=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[patch.name,patch.birthDate,patch.admissionDate,patch.jobTitle,patch.sageStatus,patch.snapshotJson,employeeId,context.companyId]);
     const refreshedPayrolls=await this.refreshUnsignedPayrollDocuments(context.companyId,employeeId);
-    await this.audit.record({actorUserId:context.userId,action:'EMPLOYEE_SAGE_SYNC_APPLIED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{companyId:context.companyId,jobId,jobTitle:patch.jobTitle,cbo:patch.cbo,sageStatus:patch.sageStatus,refreshedUnsignedPayrolls:refreshedPayrolls}});
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_SAGE_SYNC_APPLIED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,jobTitle:patch.jobTitle,cbo:patch.cbo,sageStatus:patch.sageStatus,refreshedUnsignedPayrolls:refreshedPayrolls}});
   }
 
   private async refreshUnsignedPayrollDocuments(companyId:number,employeeId:number):Promise<number>{
@@ -165,7 +165,7 @@ export class EmployeeService {
               e.sage_snapshot_json sageSnapshotJson,i.activated_at activatedAt,i.last_login_at lastLoginAt,
               CASE WHEN i.pin_hash IS NULL THEN 0 ELSE 1 END hasPin
          FROM employees e
-         JOIN employee_groups g ON g.id=e.group_id
+         JOIN employee_groups g ON g.id=e.group_id AND g.company_id=e.company_id
          JOIN employee_identities i ON i.id=e.identity_id
         WHERE e.id=? AND e.company_id=? AND e.identity_id=? LIMIT 1`,[context.employeeId,context.companyId,context.identityId]);
     const row=rows[0];if(!row)throw notFound('Funcionário não encontrado.');
@@ -192,7 +192,7 @@ export class EmployeeService {
     const [groupRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM employee_groups WHERE id=? AND company_id=? AND status='ACTIVE' LIMIT 1`,[toGroupId,context.companyId]);if(!groupRows[0])throw badRequest('Grupo inválido.');
     const from=Number(employee.groupId);if(from===toGroupId)return;
     const conn=await this.pool.getConnection();try{await conn.beginTransaction();await conn.execute(`UPDATE employees SET group_id=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[toGroupId,employeeId,context.companyId]);await conn.execute(`INSERT INTO group_membership_history (employee_id,from_group_id,to_group_id,changed_by_user_id,changed_at) VALUES (?,?,?,?,UTC_TIMESTAMP())`,[employeeId,from,toGroupId,context.userId]);await conn.commit();}catch(e){await conn.rollback();throw e;}finally{conn.release();}
-    await this.audit.record({actorUserId:context.userId,action:'EMPLOYEE_GROUP_CHANGED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{companyId:context.companyId,fromGroupId:from,toGroupId}});
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_GROUP_CHANGED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{fromGroupId:from,toGroupId}});
   }
 
 
@@ -204,7 +204,7 @@ export class EmployeeService {
     const [evidenceRows]=await this.pool.execute<RowDataPacket[]>(`SELECT COUNT(*) value FROM signature_evidence WHERE employee_id=?`,[employeeId]);
     if(block||Number(evidenceRows[0]?.value??0)>0)throw conflict('Funcionário possui holerite assinado e não pode ser excluído.');
     const [requestRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM signature_requests WHERE employee_id=?`,[employeeId]);
-    await this.audit.record({actorUserId:context.userId,action:'EMPLOYEE_DELETE_REQUESTED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{companyId:context.companyId,name:String(employee.name),cpfLast4:String(employee.cpf).slice(-4),sageEmployeeCode:String(employee.sageCode)}});
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_DELETE_REQUESTED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{name:String(employee.name),cpfLast4:String(employee.cpf).slice(-4),sageEmployeeCode:String(employee.sageCode)}});
     const conn=await this.pool.getConnection();
     try{
       await conn.beginTransaction();
@@ -231,12 +231,12 @@ export class EmployeeService {
       await conn.commit();
     }catch(error){await conn.rollback();throw error;}finally{conn.release();}
     await Promise.allSettled([this.storage.removeTree(`payrolls/${employeeId}`),...requestRows.map((r)=>this.storage.removeTree(`signatures/${Number(r.id)}`))]);
-    await this.audit.record({actorUserId:context.userId,action:'EMPLOYEE_DELETED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{companyId:context.companyId,name:String(employee.name),cpfLast4:String(employee.cpf).slice(-4),sageEmployeeCode:String(employee.sageCode)}});
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_DELETED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{name:String(employee.name),cpfLast4:String(employee.cpf).slice(-4),sageEmployeeCode:String(employee.sageCode)}});
   }
 
   async setStatus(context:UserContext,employeeId:number,status:'ACTIVE'|'DISABLED'|'TERMINATED',meta:RequestMeta):Promise<void>{
     const [result]=await this.pool.execute<ResultSetHeader>(`UPDATE employees SET status=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[status,employeeId,context.companyId]);if(result.affectedRows===0)throw notFound('Funcionário não encontrado.');
     if(status==='DISABLED') await this.pool.execute(`UPDATE employee_sessions SET revoked_at=UTC_TIMESTAMP() WHERE employee_id=? AND company_id=? AND revoked_at IS NULL`,[employeeId,context.companyId]);
-    await this.audit.record({actorUserId:context.userId,action:'EMPLOYEE_STATUS_CHANGED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{companyId:context.companyId,status}});
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_STATUS_CHANGED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{status}});
   }
 }

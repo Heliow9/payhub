@@ -71,12 +71,13 @@ export class PayrollRunService {
     });
 
     await this.audit.record({
+      companyId: context.companyId,
       actorUserId: source === 'SCHEDULED' ? null : context.userId,
       action: source === 'SCHEDULED' ? 'GROUP_AUTOMATIC_SEARCH' : 'GROUP_MANUAL_SEARCH',
       targetType: 'PAYROLL_RUN',
       targetId: run.insertId,
       meta,
-      metadata: { companyId:context.companyId,groupId, jobId, year, month, types, employeeCount: employees.length },
+      metadata: { groupId, jobId, year, month, types, employeeCount: employees.length },
     });
 
     return { runId: run.insertId, jobId };
@@ -113,12 +114,13 @@ export class PayrollRunService {
     });
 
     await this.audit.record({
+      companyId: context.companyId,
       actorUserId: context.userId,
       action: 'EMPLOYEE_MANUAL_SEARCH',
       targetType: 'PAYROLL_RUN',
       targetId: run.insertId,
       meta,
-      metadata: { companyId:context.companyId,employeeId, jobId, year, month, types },
+      metadata: { employeeId, jobId, year, month, types },
     });
 
     return { runId: run.insertId, jobId };
@@ -129,8 +131,8 @@ export class PayrollRunService {
     const [rows] = await this.pool.query<RowDataPacket[]>(
       `SELECT r.*,g.name groupName,u.name requestedByName
          FROM payroll_runs r
-         LEFT JOIN employee_groups g ON g.id=r.group_id
-         LEFT JOIN users u ON u.id=r.requested_by_user_id
+         LEFT JOIN employee_groups g ON g.id=r.group_id AND g.company_id=r.company_id
+         LEFT JOIN users u ON u.id=r.requested_by_user_id AND u.company_id=r.company_id
         WHERE r.company_id=? ORDER BY r.id DESC LIMIT ${safe}`,[context.companyId]
     );
     return rows;

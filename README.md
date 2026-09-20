@@ -13,7 +13,7 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 
 ## Regras principais
 
-- Empresa Sage fixa em `1` e exibida bloqueada na UI.
+- Arquitetura **multiempresa**: todo recurso administrativo/funcional é isolado por `company_id`; o código Sage é configuração interna de cada empresa, nunca uma empresa fixa na UI.
 - Funcionário só pode ser cadastrado se o CPF for localizado no Sage.
 - Cada funcionário pertence a exatamente um grupo.
 - Cada grupo define tipos de folha e vários horários de busca, executados de segunda a sexta.
@@ -59,6 +59,17 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - Correção estrutural do PDF A4 em duas vias para impedir linhas sobre textos no cabeçalho, totais e bases.
 
 > Web Push desta versão atende navegadores/PWA. O wrapper Android nativo usa o mesmo PWA e branding; push nativo independente do WebView com o aplicativo totalmente encerrado exige integração FCM e credenciais próprias.
+
+
+## Multiempresa
+
+- Cada sessão administrativa ou de funcionário possui um `companyId` explícito.
+- O mesmo CPF pode reutilizar a identidade/PIN global em mais de uma empresa sem misturar documentos.
+- Quando existir mais de um vínculo, Web/PWA e Android solicitam a escolha da empresa antes de criar a sessão definitiva.
+- Vínculo `ACTIVE` usa acesso completo; vínculo `TERMINATED` permanece disponível somente para histórico.
+- Trocar de empresa rotaciona a sessão e recarrega o contexto; dashboard, notificações, auditoria, workers, connectors, grupos, funcionários e holerites permanecem isolados.
+- A RealEnergy é preservada pela migration `005_multi_company.sql` como empresa original, mantendo credenciais e dados existentes.
+- Antes de produção, execute o roteiro de backup, verificação e smoke test em `DEPLOY-MULTIEMPRESA.md`.
 
 ## Instalação
 

@@ -230,3 +230,31 @@
   .employee-profile-grid{grid-template-columns:1fr}
   .employee-hero h1{font-size:27px}
 }
+
+
+/* Multiempresa: seleção e troca segura de contexto */
+.company-selector{display:flex;flex-direction:column;gap:14px}
+.company-selector-heading h2,.company-selector-heading h3{margin:0 0 5px;color:#1d2940}
+.company-selector-heading p{margin:0;color:#718096;line-height:1.5;font-size:13px}
+.company-selector-list{display:flex;flex-direction:column;gap:9px}
+.company-option{width:100%;display:flex;align-items:center;gap:12px;text-align:left;border:1px solid #e3e8f0;background:#fff;border-radius:15px;padding:13px 14px;cursor:pointer;transition:.18s ease;color:#23304a}
+.company-option:hover{border-color:#c9d2e3;box-shadow:0 8px 24px rgba(35,48,74,.08);transform:translateY(-1px)}
+.company-option:disabled{cursor:not-allowed;opacity:.68;transform:none;box-shadow:none}
+.company-option.current{border-color:#c7ccff;background:#f6f6ff}
+.company-option.historical{background:#fbfaf7;border-color:#e9e2cf}
+.company-option-icon{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;flex:0 0 auto;background:#eef1ff;color:#5b5deb;font-size:18px;font-weight:900}
+.company-option.historical .company-option-icon{background:#f6efe0;color:#9a6e24}
+.company-option-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:3px}
+.company-option-copy strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.company-option-copy small{font-size:10px;color:#7e899b;line-height:1.35}
+.company-option-action{font-size:11px;color:#5b5deb;font-weight:800;white-space:nowrap}
+.company-login-card{display:flex;flex-direction:column;justify-content:center}
+.employee-company-switch{white-space:nowrap}
+.historical-access-chip{display:inline-flex;align-items:center;margin-top:10px;border:1px solid rgba(255,255,255,.34);background:rgba(255,255,255,.14);backdrop-filter:blur(5px);border-radius:999px;padding:6px 10px;color:#fff;font-size:10px;font-weight:800;letter-spacing:.02em}
+
+@media(max-width:760px){
+  .employee-company-switch{width:40px;height:40px;overflow:hidden;padding:0!important;font-size:0;border-radius:13px}
+  .employee-company-switch::before{content:'↔';font-size:18px}
+  .company-option{padding:12px}
+  .company-option-action{display:none}
+}

@@ -34,7 +34,7 @@ export class AuthService {
        VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), NULL)`,
       [userId, companyId, sha256(token), sha256(csrfToken), expiresAt]
     );
-    await this.audit.record({ actorUserId: userId, action: 'LOGIN', targetType: 'USER', targetId: userId, meta });
+    await this.audit.record({ companyId,actorUserId: userId, action: 'LOGIN', targetType: 'USER', targetId: userId, meta });
     return { token, csrfToken, expiresAt };
   }
 
@@ -183,6 +183,10 @@ export class AuthService {
     }
   }
 
+  async listEmployeeCompanies(principal: EmployeePrincipal): Promise<CompanyOption[]> {
+    return this.employeeLinks(principal.identityId);
+  }
+
   async switchEmployeeCompany(tokenHash: string, principal: EmployeePrincipal, companyId: number, meta: RequestMeta): Promise<LoginResult> {
     const connection = await this.pool.getConnection();
     try {
@@ -248,7 +252,7 @@ export class AuthService {
     if (!tokenHash || !principal) return;
     if (principal.kind === 'USER') {
       await this.pool.execute(`UPDATE sessions SET revoked_at=UTC_TIMESTAMP() WHERE token_hash=?`, [tokenHash]);
-      await this.audit.record({ actorUserId: principal.id, action:'LOGOUT', targetType:'USER', targetId:principal.id, meta });
+      await this.audit.record({ companyId:principal.companyId,actorUserId: principal.id, action:'LOGOUT', targetType:'USER', targetId:principal.id, meta });
     } else {
       await this.pool.execute(`UPDATE employee_sessions SET revoked_at=UTC_TIMESTAMP() WHERE token_hash=?`, [tokenHash]);
     }
@@ -265,7 +269,7 @@ export class AuthService {
         `INSERT INTO users (company_id,name,email,password_hash,role,status,created_at,updated_at) VALUES (?,?,?,?,'ANALISTA','ACTIVE',UTC_TIMESTAMP(),UTC_TIMESTAMP())`,
         [context.companyId, cleanName, cleanEmail, hash]
       );
-      await this.audit.record({ actorUserId:context.userId, action:'ANALYST_CREATED', targetType:'USER', targetId:result.insertId, meta, metadata:{email:cleanEmail,companyId:context.companyId} });
+      await this.audit.record({ companyId:context.companyId,actorUserId:context.userId, action:'ANALYST_CREATED', targetType:'USER', targetId:result.insertId, meta, metadata:{email:cleanEmail} });
       return result.insertId;
     } catch (error) {
       if ((error as {code?:string}).code === 'ER_DUP_ENTRY') throw badRequest('Já existe um usuário com este e-mail.');

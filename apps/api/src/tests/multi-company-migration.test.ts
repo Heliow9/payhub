@@ -28,6 +28,10 @@ describe('005_multi_company.sql', () => {
     ]) {
       expect(sql).toMatch(new RegExp(`ALTER TABLE ${table}[^;]+company_id`, 'i'));
     }
+    expect(sql).toMatch(/ALTER TABLE connector_job_logs[^;]+company_id/i);
+    expect(sql).toMatch(/ALTER TABLE connector_raw_batches[^;]+company_id/i);
+    expect(sql).toMatch(/ALTER TABLE app_settings[^;]+company_id/i);
+    expect(sql).toMatch(/uk_employee_groups_company_name \(company_id, name\)/i);
   });
 
   it('faz backfill da RealEnergy e preserva credenciais', () => {
@@ -36,6 +40,9 @@ describe('005_multi_company.sql', () => {
     expect(sql).toMatch(/INSERT INTO employee_identities[\s\S]+employee_credentials/i);
     expect(sql).toMatch(/UPDATE employees[\s\S]+identity_id/i);
     expect(sql).toMatch(/admin@realenergy\.com\.br/i);
+    expect(sql).toMatch(/UPDATE users[\s\S]+company_id/i);
+    expect(sql).toMatch(/UPDATE payrolls[\s\S]+company_id/i);
+    expect(sql).toMatch(/UPDATE notifications[\s\S]+company_id/i);
   });
 });
 

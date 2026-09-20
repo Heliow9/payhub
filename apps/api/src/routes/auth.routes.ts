@@ -67,6 +67,14 @@ export function authRoutes(auth: AuthService, env: Env) {
     } catch (e) { next(e); }
   });
 
+  r.get('/companies', requireEmployee, async (req, res, next) => {
+    try {
+      const principal = req.principal!;
+      if (principal.kind !== 'EMPLOYEE') return res.json({ companies: [] });
+      return res.json({ companies: await auth.listEmployeeCompanies(principal) });
+    } catch (e) { next(e); }
+  });
+
   r.post('/switch-company', requireEmployee, csrf, async (req, res, next) => {
     try {
       const body = z.object({ companyId: z.coerce.number().int().positive(), client: z.enum(['WEB','MOBILE']).optional().default('WEB') }).parse(req.body);
