@@ -1,7 +1,38 @@
 export type UserRole = 'MASTER' | 'ANALISTA';
-export type Principal =
-  | { kind: 'USER'; id: number; name: string; email: string; role: UserRole; status: 'ACTIVE' | 'DISABLED'; csrfToken?: string }
-  | { kind: 'EMPLOYEE'; id: number; name: string; cpf: string; status: 'ACTIVE' | 'DISABLED' | 'TERMINATED'; csrfToken?: string };
+export type UserPrincipal = {
+  kind: 'USER';
+  id: number;
+  companyId: number;
+  companyName: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  status: 'ACTIVE' | 'DISABLED';
+  csrfToken?: string;
+};
+export type EmployeePrincipal = {
+  kind: 'EMPLOYEE';
+  id: number;
+  identityId: number;
+  companyId: number;
+  companyName: string;
+  name: string;
+  cpf: string;
+  status: 'ACTIVE' | 'DISABLED' | 'TERMINATED';
+  accessMode: 'FULL' | 'HISTORICAL';
+  csrfToken?: string;
+};
+export type Principal = UserPrincipal | EmployeePrincipal;
+
+export type UserContext = { kind: 'USER'; companyId: number; userId: number; role: UserRole };
+export type EmployeeContext = {
+  kind: 'EMPLOYEE';
+  companyId: number;
+  employeeId: number;
+  identityId: number;
+  accessMode: 'FULL' | 'HISTORICAL';
+};
+export type RequestContext = UserContext | EmployeeContext;
 
 export interface RequestMeta {
   ipAddress: string | null;

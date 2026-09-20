@@ -5,7 +5,9 @@ declare global {
     interface Request {
       principal?: Principal;
       sessionTokenHash?: string;
+      csrfHash?: string;
       connectorId?: number;
+      connectorCompanyId?: number;
     }
   }
 }
