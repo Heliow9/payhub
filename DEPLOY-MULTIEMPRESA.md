@@ -67,6 +67,7 @@ O verificador deve terminar sem `FAIL`. Em especial, confirme:
 - nenhuma divergência de empresa entre sessão, funcionário, connector, job e holerite;
 - identidades de funcionário preservadas;
 - documentos assinados mantendo seus hashes.
+- exatamente um usuário `MASTER/ACTIVE` por empresa ativa, correspondente ao registro de `company_masters`.
 
 ## 4. Smoke test de duas empresas em homologação
 
@@ -100,6 +101,8 @@ npm run verify:multi-company --workspace @payhub/api
 ```
 
 **Não prossiga** se qualquer check retornar `FAIL`.
+
+O executor usa lock exclusivo e registra cada tentativa em `schema_migration_runs`. Como o MySQL confirma operações DDL como `ALTER TABLE` implicitamente, uma execução interrompida fica marcada como `RUNNING` ou `FAILED` e uma repetição automática é bloqueada. Nesse caso, **não apague o registro para tentar novamente às cegas**: interrompa a implantação, inspecione o ponto de falha e restaure o clone/backup anterior ou conclua uma recuperação manual validada antes de liberar uma nova execução.
 
 ### 5.3 Executar regressão e build
 

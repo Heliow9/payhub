@@ -1,26 +1,22 @@
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../api/client';
 import { DashboardPage } from './DashboardPage';
 
-const baseUser = {
-  id: 1,
-  name: 'Master PayHub',
-  email: 'master@payhub.local',
-  status: 'ACTIVE' as const,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-};
-
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => vi.restoreAllMocks());
 
 describe('DashboardPage', () => {
-  it('shows user management only to master', () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
-    const { rerender } = render(<DashboardPage user={{ ...baseUser, role: 'MASTER' }} csrfToken="csrf" onLogout={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Usuários' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Integração Sage' })).toBeInTheDocument();
-    rerender(<DashboardPage user={{ ...baseUser, role: 'ANALISTA' }} csrfToken="csrf" onLogout={vi.fn()} />);
-    expect(screen.queryByRole('button', { name: 'Usuários' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Integração Sage' })).toBeInTheDocument();
+  it('carrega as métricas da empresa autenticada', async () => {
+    vi.spyOn(api, 'dashboard').mockResolvedValue({
+      metrics: { employees: 12, groups: 3, ready: 4, pending: 2, signed: 8, failed: 0 },
+      connectors: [],
+      runs: [],
+    });
+
+    render(<DashboardPage />);
+
+    expect(await screen.findByText('12')).toBeInTheDocument();
+    expect(screen.getByText('Funcionários ativos')).toBeInTheDocument();
+    expect(api.dashboard).toHaveBeenCalledTimes(1);
   });
 });

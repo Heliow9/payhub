@@ -15,6 +15,6 @@
     "start:worker": "npm run start:worker --workspace @payhub/api"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   }
 }

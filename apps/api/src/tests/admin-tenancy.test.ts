@@ -55,4 +55,19 @@ describe('administração multiempresa', () => {
     expect(insert.sql).toContain('company_id');
     expect(insert.params[0]).toBe(7);
   });
+
+  it('autentica MASTER somente quando ele é o titular registrado da empresa', async () => {
+    let loginSql = '';
+    const pool = {
+      execute: async (sql: string) => {
+        if (sql.includes('FROM users')) { loginSql = sql; return [[]]; }
+        return [{ affectedRows: 1 }];
+      },
+    };
+
+    await expect(new AuthService(pool as never, {} as never, {} as never)
+      .adminLogin('master@nova.test', 'senha', { ipAddress: null, userAgent: null }))
+      .rejects.toMatchObject({ statusCode: 401 });
+    expect(loginSql).toContain('company_masters');
+  });
 });

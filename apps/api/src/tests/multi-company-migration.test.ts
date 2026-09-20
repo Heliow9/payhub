@@ -44,6 +44,21 @@ describe('005_multi_company.sql', () => {
     expect(sql).toMatch(/UPDATE payrolls[\s\S]+company_id/i);
     expect(sql).toMatch(/UPDATE notifications[\s\S]+company_id/i);
   });
+
+  it('verifica que cada empresa ativa possui exatamente um MASTER ativo', async () => {
+    let verificationSql = '';
+    const pool = {
+      query: async (statement: string) => {
+        verificationSql = statement;
+        return [[]];
+      },
+    };
+
+    await verifyMultiCompanyMigration(pool as never);
+
+    expect(verificationSql).toContain('companies_without_exactly_one_active_master');
+    expect(verificationSql).toMatch(/HAVING COUNT\(u\.id\) <> 1/i);
+  });
 });
 
 describe('verifyMultiCompanyMigration', () => {

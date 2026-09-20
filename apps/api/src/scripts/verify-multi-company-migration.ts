@@ -33,6 +33,16 @@ SELECT 'companies_without_one_active_master', COUNT(*), 0
   LEFT JOIN users u ON u.id=cm.user_id AND u.company_id=c.id AND u.role='MASTER' AND u.status='ACTIVE'
  WHERE c.status='ACTIVE' AND u.id IS NULL
 UNION ALL
+SELECT 'companies_without_exactly_one_active_master', COUNT(*), 0
+  FROM (
+    SELECT c.id
+      FROM companies c
+      LEFT JOIN users u ON u.company_id=c.id AND u.role='MASTER' AND u.status='ACTIVE'
+     WHERE c.status='ACTIVE'
+     GROUP BY c.id
+    HAVING COUNT(u.id) <> 1
+  ) invalid_master_count
+UNION ALL
 SELECT 'employees_without_identity', COUNT(*), 0
   FROM employees WHERE company_id IS NULL OR identity_id IS NULL
 UNION ALL

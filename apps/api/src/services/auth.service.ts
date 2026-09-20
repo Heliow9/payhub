@@ -95,8 +95,10 @@ export class AuthService {
     const email = identifier.trim().toLowerCase();
     const [rows] = await this.pool.execute<RowDataPacket[]>(
       `SELECT u.id,u.company_id companyId,c.display_name companyName,u.name,u.email,u.password_hash,u.role,u.status
-         FROM users u JOIN companies c ON c.id=u.company_id AND c.status='ACTIVE'
-        WHERE u.email=? LIMIT 1`,
+         FROM users u
+         JOIN companies c ON c.id=u.company_id AND c.status='ACTIVE'
+         LEFT JOIN company_masters cm ON cm.company_id=u.company_id AND cm.user_id=u.id
+        WHERE u.email=? AND (u.role='ANALISTA' OR cm.user_id IS NOT NULL) LIMIT 1`,
       [email],
     );
     const row = rows[0];

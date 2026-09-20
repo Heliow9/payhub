@@ -1,0 +1,5 @@
+import {StyleSheet,Text,View} from 'react-native';
+import {colors} from '../theme/colors';
+const labels:Record<string,string>={READY:'Pronto',SIGNATURE_REQUESTED:'Assinatura solicitada',VIEWED:'Visualizado',SIGNED:'Assinado'};
+export function StatusBadge({status}:{status:string}){const signed=status==='SIGNED';const pending=['SIGNATURE_REQUESTED','VIEWED'].includes(status);return <View style={[styles.badge,signed?styles.success:pending?styles.warning:styles.neutral]}><View style={[styles.dot,{backgroundColor:signed?colors.green:pending?colors.amber:colors.muted}]}/><Text style={[styles.text,{color:signed?colors.green:pending?colors.amber:colors.muted}]}>{labels[status]??status}</Text></View>}
+const styles=StyleSheet.create({badge:{flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:10,paddingVertical:6,borderRadius:99},success:{backgroundColor:colors.greenSoft},warning:{backgroundColor:colors.amberSoft},neutral:{backgroundColor:'#F0F2F7'},dot:{width:6,height:6,borderRadius:3},text:{fontSize:10,fontWeight:'900'}});

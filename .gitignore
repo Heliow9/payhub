@@ -11,3 +11,8 @@ connector/**/obj/
 apps/android/.gradle/
 apps/android/local.properties
 apps/android/app/build/
+apps/mobile/.expo/
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/.claude/
+apps/mobile/.vscode/

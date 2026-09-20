@@ -9,7 +9,7 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - **Worker:** processo Node separado em PM2 usando MySQL como orquestrador
 - **Banco:** MySQL 5.6+
 - **Sage Connector:** .NET 8 Windows Service somente leitura
-- **Android:** wrapper WebView nativo para o PWA, com identidade visual PayHub
+- **Android:** aplicativo Expo/React Native em `apps/mobile`, integrado ao mesmo contrato multiempresa da API
 
 ## Regras principais
 
@@ -58,7 +58,7 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - Naturezas exibidas em português e ordem oficial aprovada: vencimentos antes dos descontos, ordenados por código.
 - Correção estrutural do PDF A4 em duas vias para impedir linhas sobre textos no cabeçalho, totais e bases.
 
-> Web Push desta versão atende navegadores/PWA. O wrapper Android nativo usa o mesmo PWA e branding; push nativo independente do WebView com o aplicativo totalmente encerrado exige integração FCM e credenciais próprias.
+> Web Push atende navegadores/PWA. O aplicativo Expo/React Native ainda exige integração FCM e credenciais próprias para push nativo com o aplicativo totalmente encerrado.
 
 
 ## Multiempresa
@@ -69,6 +69,7 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - Vínculo `ACTIVE` usa acesso completo; vínculo `TERMINATED` permanece disponível somente para histórico.
 - Trocar de empresa rotaciona a sessão e recarrega o contexto; dashboard, notificações, auditoria, workers, connectors, grupos, funcionários e holerites permanecem isolados.
 - A RealEnergy é preservada pela migration `005_multi_company.sql` como empresa original, mantendo credenciais e dados existentes.
+- Cada empresa possui exatamente um MASTER ativo registrado em `company_masters`; os demais usuários administrativos são ANALISTAS e os e-mails permanecem globalmente únicos.
 - Antes de produção, execute o roteiro de backup, verificação e smoke test em `DEPLOY-MULTIEMPRESA.md`.
 
 ## Instalação
@@ -82,6 +83,8 @@ npm run db:migrate
 pm2 startOrReload ecosystem.config.cjs
 pm2 save
 ```
+
+O workspace `@payhub/mobile` participa de `npm test` e `npm run build`. Para desenvolvimento Android, use `npm run android --workspace @payhub/mobile`.
 
 O conector Windows fica em `connector/PayHub.SageConnector`.
 
@@ -109,7 +112,7 @@ Consulte `DEPLOY-HOTFIX-0.4.1.md` para atualização.
 - Assinatura desenhada permanece preservada apenas como evidência administrativa.
 - Pacote de evidências registra IP do servidor, User-Agent, dispositivo, sistema, navegador/app, tela, idioma, fuso horário e localização quando disponível.
 - PWA coleta geolocalização pela API do navegador no ato da assinatura; quando a plataforma exigir, apenas o prompt nativo do sistema/navegador poderá aparecer.
-- Android nativo habilita localização no WebView, solicita a permissão do sistema operacional e expõe marca, fabricante, modelo, versão Android, arquitetura e versão do app para a evidência.
+- O aplicativo Android coleta, mediante permissão do sistema operacional, localização e dados técnicos do dispositivo usados na evidência de assinatura.
 - Coordenadas podem ser convertidas em endereço aproximado por geocodificação reversa configurável.
 - O aceite informa de forma expressa quais informações técnicas e de localização compõem a evidência da assinatura.
 - Dashboard administrativo exibe dispositivo, IP, localização, endereço aproximado, hashes e permite exportar o comprovante de evidências.
