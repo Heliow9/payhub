@@ -1,11 +1,27 @@
-import type { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import type { Pool, PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import type { Env } from '../config/env.js';
-import { badRequest, forbidden, notFound, unauthorized } from '../core/errors.js';
+import { badRequest, notFound, unauthorized } from '../core/errors.js';
 import { hashSecret, isSixDigitPin, isValidCpf, needsSecretRehash, normalizeCpf, randomToken, sha256, verifySecret } from '../core/security.js';
-import type { Principal, RequestMeta } from '../core/types.js';
+import type { EmployeePrincipal, Principal, RequestMeta } from '../core/types.js';
 import { AuditService } from './audit.service.js';
 
-export interface LoginResult { principal: Principal; token: string; csrfToken: string; expiresAt: Date; }
+export interface LoginResult { principal: Principal; token: string; csrfToken: string; expiresAt: Date; client?: ClientKind; }
+export interface CompanyOption {
+  employeeId: number;
+  companyId: number;
+  companyName: string;
+  name: string;
+  status: 'ACTIVE' | 'TERMINATED';
+  accessMode: 'FULL' | 'HISTORICAL';
+}
+export interface CompanySelectionResult {
+  requiresCompanySelection: true;
+  selectionToken: string;
+  companies: CompanyOption[];
+}
+export type LoginOutcome = LoginResult | CompanySelectionResult;
+type ClientKind = 'WEB' | 'MOBILE';
+type Executor = Pool | PoolConnection;
 
 export class AuthService {
   constructor(private pool: Pool, private env: Env, private audit: AuditService) {}
@@ -22,16 +38,57 @@ export class AuthService {
     return { token, csrfToken, expiresAt };
   }
 
-  private async makeEmployeeSession(employeeId: number, identityId: number, companyId: number, meta: RequestMeta): Promise<{ token: string; csrfToken: string; expiresAt: Date }> {
+  private async makeEmployeeSession(employeeId: number, identityId: number, companyId: number, meta: RequestMeta, executor: Executor = this.pool): Promise<{ token: string; csrfToken: string; expiresAt: Date }> {
     const token = randomToken(32); const csrfToken = randomToken(24);
     const expiresAt = new Date(Date.now() + this.env.EMPLOYEE_SESSION_TTL_HOURS * 3600_000);
-    await this.pool.execute(
+    await executor.execute(
       `INSERT INTO employee_sessions (employee_id, company_id, identity_id, token_hash, csrf_token_hash, expires_at, created_at, last_seen_at, revoked_at, ip_address, user_agent)
        VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), NULL, ?, ?)`,
       [employeeId, companyId, identityId, sha256(token), sha256(csrfToken), expiresAt, meta.ipAddress, meta.userAgent]
     );
-    await this.pool.execute(`UPDATE employee_credentials SET last_login_at = UTC_TIMESTAMP(), failed_attempts = 0, locked_until = NULL, updated_at = UTC_TIMESTAMP() WHERE employee_id = ?`, [employeeId]);
+    await executor.execute(`UPDATE employee_identities SET last_login_at = UTC_TIMESTAMP(), failed_attempts = 0, locked_until = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?`, [identityId]);
     return { token, csrfToken, expiresAt };
+  }
+
+  private async employeeLinks(identityId: number, executor: Executor = this.pool, companyId?: number): Promise<CompanyOption[]> {
+    const [rows] = await executor.execute<RowDataPacket[]>(
+      `SELECT e.id employeeId,e.company_id companyId,c.display_name companyName,e.name,e.status
+         FROM employees e
+         JOIN companies c ON c.id=e.company_id AND c.status='ACTIVE'
+        WHERE e.identity_id=? AND e.status IN ('ACTIVE','TERMINATED')${companyId === undefined ? '' : ' AND e.company_id=?'}
+        ORDER BY c.display_name,e.id`,
+      companyId === undefined ? [identityId] : [identityId, companyId],
+    );
+    return rows.map((row) => ({
+      employeeId: Number(row.employeeId), companyId: Number(row.companyId), companyName: String(row.companyName),
+      name: String(row.name), status: row.status as 'ACTIVE' | 'TERMINATED',
+      accessMode: row.status === 'TERMINATED' ? 'HISTORICAL' : 'FULL',
+    }));
+  }
+
+  private employeePrincipal(identityId: number, cpf: string, link: CompanyOption): EmployeePrincipal {
+    return {
+      kind: 'EMPLOYEE', id: link.employeeId, identityId, companyId: link.companyId,
+      companyName: link.companyName, name: link.name, cpf, status: link.status, accessMode: link.accessMode,
+    };
+  }
+
+  private async completeEmployeeAuthentication(identityId: number, cpf: string, meta: RequestMeta, client: ClientKind): Promise<LoginOutcome> {
+    const companies = await this.employeeLinks(identityId);
+    if (companies.length === 0) throw unauthorized();
+    if (companies.length === 1) {
+      const company = companies[0]!;
+      const session = await this.makeEmployeeSession(company.employeeId, identityId, company.companyId, meta);
+      return { principal: this.employeePrincipal(identityId, cpf, company), ...session };
+    }
+    const selectionToken = randomToken(32);
+    const expiresAt = new Date(Date.now() + 5 * 60_000);
+    await this.pool.execute(
+      `INSERT INTO employee_company_selections (identity_id,token_hash,client,ip_address,user_agent,expires_at,used_at,created_at)
+       VALUES (?,?,?,?,?,?,NULL,UTC_TIMESTAMP())`,
+      [identityId, sha256(selectionToken), client, meta.ipAddress, meta.userAgent, expiresAt],
+    );
+    return { requiresCompanySelection: true, selectionToken, companies };
   }
 
   async adminLogin(identifier: string, password: string, meta: RequestMeta): Promise<LoginResult> {
@@ -51,56 +108,98 @@ export class AuthService {
     return { principal: { kind: 'USER', id: Number(row.id), companyId:Number(row.companyId), companyName:String(row.companyName), name: String(row.name), email: String(row.email), role: row.role, status: row.status }, ...session };
   }
 
-  async employeeLogin(identifier: string, pin: string, meta: RequestMeta): Promise<LoginResult> {
+  async employeeLogin(identifier: string, pin: string, meta: RequestMeta, client: ClientKind = 'WEB'): Promise<LoginOutcome> {
     const cpf = normalizeCpf(identifier);
     if (!isValidCpf(cpf)) throw unauthorized('CPF inválido.');
     if (!isSixDigitPin(pin)) throw unauthorized('PIN inválido.');
     const [rows] = await this.pool.execute<RowDataPacket[]>(
-      `SELECT e.id,e.identity_id identityId,e.company_id companyId,co.display_name companyName,e.name,e.cpf,e.status,c.pin_hash,c.failed_attempts,c.locked_until
-         FROM employees e JOIN companies co ON co.id=e.company_id AND co.status='ACTIVE'
-         LEFT JOIN employee_credentials c ON c.employee_id = e.id
-        WHERE e.cpf = ? LIMIT 1`, [cpf]
+      `SELECT i.id,i.cpf,DATE_FORMAT(i.birth_date,'%Y-%m-%d') birthDate,i.pin_hash,i.failed_attempts,i.locked_until
+         FROM employee_identities i WHERE i.cpf = ? LIMIT 1`, [cpf]
     );
     const row = rows[0];
-    if (!row || row.status !== 'ACTIVE') throw unauthorized();
+    if (!row) throw unauthorized();
     if (!row.pin_hash) throw unauthorized('Primeiro acesso necessário.', 'PIN_NOT_SET');
     if (row.locked_until && new Date(row.locked_until as string).getTime() > Date.now()) throw unauthorized('Acesso temporariamente bloqueado. Tente novamente mais tarde.', 'EMPLOYEE_LOCKED');
     const ok = await verifySecret(pin, String(row.pin_hash));
     if (!ok) {
       const attempts = Number(row.failed_attempts ?? 0) + 1;
       const lock = attempts >= 5 ? new Date(Date.now() + 15 * 60_000) : null;
-      await this.pool.execute(`UPDATE employee_credentials SET failed_attempts = ?, locked_until = ?, updated_at = UTC_TIMESTAMP() WHERE employee_id = ?`, [attempts, lock, row.id]);
+      await this.pool.execute(`UPDATE employee_identities SET failed_attempts = ?, locked_until = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?`, [attempts, lock, row.id]);
       throw unauthorized('CPF ou PIN inválido.');
     }
-    const session = await this.makeEmployeeSession(Number(row.id), Number(row.identityId), Number(row.companyId), meta);
-    return { principal: { kind: 'EMPLOYEE', id: Number(row.id), identityId:Number(row.identityId), companyId:Number(row.companyId), companyName:String(row.companyName), name: String(row.name), cpf: String(row.cpf), status: row.status, accessMode:'FULL' }, ...session };
+    if (needsSecretRehash(String(row.pin_hash))) {
+      await this.pool.execute(`UPDATE employee_identities SET pin_hash=?,updated_at=UTC_TIMESTAMP() WHERE id=?`, [await hashSecret(pin), row.id]);
+    }
+    return this.completeEmployeeAuthentication(Number(row.id), String(row.cpf), meta, client);
   }
 
-  async firstAccess(cpfInput: string, birthDate: string, pin: string, meta: RequestMeta): Promise<LoginResult> {
+  async firstAccess(cpfInput: string, birthDate: string, pin: string, meta: RequestMeta, client: ClientKind = 'WEB'): Promise<LoginOutcome> {
     const cpf = normalizeCpf(cpfInput);
     if (!isValidCpf(cpf)) throw badRequest('CPF inválido.');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) throw badRequest('Data de nascimento inválida.');
     if (!isSixDigitPin(pin)) throw badRequest('O PIN deve possuir exatamente 6 números.');
     const [rows] = await this.pool.execute<RowDataPacket[]>(
-      `SELECT e.id,e.identity_id identityId,e.company_id companyId,co.display_name companyName,e.name,e.cpf,e.status,DATE_FORMAT(e.birth_date,'%Y-%m-%d') birthDate,c.pin_hash
-         FROM employees e JOIN companies co ON co.id=e.company_id AND co.status='ACTIVE'
-         LEFT JOIN employee_credentials c ON c.employee_id = e.id
-        WHERE e.cpf = ? LIMIT 1`, [cpf]
+      `SELECT i.id,i.cpf,DATE_FORMAT(i.birth_date,'%Y-%m-%d') birthDate,i.pin_hash
+         FROM employee_identities i WHERE i.cpf = ? LIMIT 1`, [cpf]
     );
     const row = rows[0];
     if (!row) throw notFound('Funcionário não cadastrado no PayHub.');
-    if (row.status !== 'ACTIVE') throw forbidden('Cadastro do funcionário está inativo.');
-    if (String(row.birthDate) !== birthDate) throw unauthorized('CPF ou data de nascimento não conferem.');
     if (row.pin_hash) throw badRequest('O PIN já foi cadastrado. Utilize o login normal.', 'PIN_ALREADY_SET');
+    if (String(row.birthDate) !== birthDate) throw unauthorized('CPF ou data de nascimento não conferem.');
     const pinHash = await hashSecret(pin);
     await this.pool.execute(
-      `INSERT INTO employee_credentials (employee_id, pin_hash, activated_at, pin_changed_at, failed_attempts, locked_until, last_login_at, updated_at)
-       VALUES (?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), 0, NULL, NULL, UTC_TIMESTAMP())
-       ON DUPLICATE KEY UPDATE pin_hash=VALUES(pin_hash), activated_at=UTC_TIMESTAMP(), pin_changed_at=UTC_TIMESTAMP(), failed_attempts=0, locked_until=NULL, updated_at=UTC_TIMESTAMP()`,
-      [row.id, pinHash]
+      `UPDATE employee_identities SET pin_hash=?,activated_at=UTC_TIMESTAMP(),pin_changed_at=UTC_TIMESTAMP(),failed_attempts=0,locked_until=NULL,updated_at=UTC_TIMESTAMP() WHERE id=?`,
+      [pinHash, row.id]
     );
-    const session = await this.makeEmployeeSession(Number(row.id), Number(row.identityId), Number(row.companyId), meta);
-    return { principal: { kind: 'EMPLOYEE', id: Number(row.id), identityId:Number(row.identityId), companyId:Number(row.companyId), companyName:String(row.companyName), name: String(row.name), cpf: String(row.cpf), status: row.status, accessMode:'FULL' }, ...session };
+    return this.completeEmployeeAuthentication(Number(row.id), String(row.cpf), meta, client);
+  }
+
+  async selectEmployeeCompany(selectionToken: string, companyId: number, meta: RequestMeta): Promise<LoginResult> {
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [selectionRows] = await connection.execute<RowDataPacket[]>(
+        `SELECT id,identity_id identityId,client,expires_at expiresAt
+           FROM employee_company_selections
+          WHERE token_hash=? AND used_at IS NULL AND expires_at>UTC_TIMESTAMP() FOR UPDATE`,
+        [sha256(selectionToken)],
+      );
+      const selection = selectionRows[0];
+      if (!selection) throw unauthorized('Seleção de empresa inválida ou expirada.');
+      const links = await this.employeeLinks(Number(selection.identityId), connection, companyId);
+      if (links.length !== 1) throw unauthorized('Empresa não vinculada ao funcionário.');
+      const link = links[0]!;
+      const [identityRows] = await connection.execute<RowDataPacket[]>(`SELECT cpf FROM employee_identities WHERE id=? LIMIT 1`, [selection.identityId]);
+      if (!identityRows[0]) throw unauthorized();
+      await connection.execute(`UPDATE employee_company_selections SET used_at=UTC_TIMESTAMP() WHERE id=? AND used_at IS NULL`, [selection.id]);
+      const session = await this.makeEmployeeSession(link.employeeId, Number(selection.identityId), link.companyId, meta, connection);
+      await connection.commit();
+      return { principal: this.employeePrincipal(Number(selection.identityId), String(identityRows[0].cpf), link), ...session, client: selection.client as ClientKind };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async switchEmployeeCompany(tokenHash: string, principal: EmployeePrincipal, companyId: number, meta: RequestMeta): Promise<LoginResult> {
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const links = await this.employeeLinks(principal.identityId, connection, companyId);
+      if (links.length !== 1) throw unauthorized('Empresa não vinculada ao funcionário.');
+      const link = links[0]!;
+      await connection.execute(`UPDATE employee_sessions SET revoked_at=UTC_TIMESTAMP() WHERE token_hash=? AND identity_id=? AND revoked_at IS NULL`, [tokenHash, principal.identityId]);
+      const session = await this.makeEmployeeSession(link.employeeId, principal.identityId, companyId, meta, connection);
+      await connection.commit();
+      return { principal: this.employeePrincipal(principal.identityId, principal.cpf, link), ...session };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   async authenticate(rawToken: string | undefined): Promise<{ principal: Principal; tokenHash: string; csrfHash: string } | null> {
@@ -126,7 +225,7 @@ export class AuthService {
         WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at > UTC_TIMESTAMP() LIMIT 1`, [tokenHash]
     );
     const employee = employeeRows[0];
-    if (employee && employee.status === 'ACTIVE') {
+    if (employee && (employee.status === 'ACTIVE' || employee.status === 'TERMINATED')) {
       await this.pool.execute(`UPDATE employee_sessions SET last_seen_at=UTC_TIMESTAMP() WHERE id=?`, [employee.sessionId]);
       return { principal: { kind:'EMPLOYEE', id:Number(employee.id), identityId:Number(employee.identityId), companyId:Number(employee.companyId), companyName:String(employee.companyName), name:String(employee.name), cpf:String(employee.cpf), status:employee.status, accessMode:employee.status==='TERMINATED'?'HISTORICAL':'FULL' }, tokenHash, csrfHash:String(employee.csrfHash) };
     }
