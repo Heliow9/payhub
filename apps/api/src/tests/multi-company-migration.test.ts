@@ -1,0 +1,60 @@
+import fs from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { verifyMultiCompanyMigration } from '../scripts/verify-multi-company-migration.js';
+
+const sql = fs.readFileSync(new URL('../db/migrations/005_multi_company.sql', import.meta.url), 'utf8');
+
+describe('005_multi_company.sql', () => {
+  it('cria identidade global, empresa e isolamento nas raízes', () => {
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS companies/i);
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS company_masters/i);
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS employee_identities/i);
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS employee_company_selections/i);
+    for (const table of [
+      'users',
+      'sessions',
+      'audit_logs',
+      'connectors',
+      'import_jobs',
+      'employee_groups',
+      'employees',
+      'employee_sessions',
+      'payroll_runs',
+      'schedule_executions',
+      'payrolls',
+      'notifications',
+      'push_preferences',
+      'push_subscriptions',
+    ]) {
+      expect(sql).toMatch(new RegExp(`ALTER TABLE ${table}[^;]+company_id`, 'i'));
+    }
+  });
+
+  it('faz backfill da RealEnergy e preserva credenciais', () => {
+    expect(sql).toContain("'realenergy'");
+    expect(sql).toMatch(/sage_company_code[^;]*'1'/i);
+    expect(sql).toMatch(/INSERT INTO employee_identities[\s\S]+employee_credentials/i);
+    expect(sql).toMatch(/UPDATE employees[\s\S]+identity_id/i);
+    expect(sql).toMatch(/admin@realenergy\.com\.br/i);
+  });
+});
+
+describe('verifyMultiCompanyMigration', () => {
+  it('marca como falha qualquer invariante com valor diferente do esperado', async () => {
+    const pool = {
+      query: async () => [[
+        { name: 'realenergy_companies', value: 1, expected: 1 },
+        { name: 'users_without_company', value: 0, expected: 0 },
+        { name: 'employees_without_identity', value: 2, expected: 0 },
+      ]],
+    };
+
+    const checks = await verifyMultiCompanyMigration(pool as never);
+
+    expect(checks).toEqual([
+      { name: 'realenergy_companies', value: 1, expected: 1, ok: true },
+      { name: 'users_without_company', value: 0, expected: 0, ok: true },
+      { name: 'employees_without_identity', value: 2, expected: 0, ok: false },
+    ]);
+  });
+});

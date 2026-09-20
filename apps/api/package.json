@@ -10,6 +10,7 @@
     "start": "node dist/server.js",
     "start:worker": "node dist/worker/main.js",
     "db:migrate": "tsx src/db/migrate.ts",
+    "verify:multi-company": "tsx src/scripts/verify-multi-company-migration.ts",
     "bootstrap:master": "tsx src/db/bootstrap-master.ts"
   },
   "dependencies": {
