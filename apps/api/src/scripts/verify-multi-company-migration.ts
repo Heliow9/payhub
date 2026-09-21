@@ -104,6 +104,10 @@ UNION ALL
 SELECT 'audit_actor_company_mismatch', COUNT(*), 0
   FROM audit_logs a JOIN users u ON u.id=a.actor_user_id
  WHERE a.company_id<>u.company_id
+UNION ALL
+SELECT 'notification_outbox_company_mismatch', COUNT(*), 0
+  FROM notification_outbox o JOIN notifications n ON n.id=o.notification_id
+ WHERE o.company_id<>n.company_id
 `;
 
 export async function verifyMultiCompanyMigration(pool: Pick<Pool, 'query'>): Promise<MigrationCheck[]> {

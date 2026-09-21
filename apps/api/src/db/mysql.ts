@@ -10,6 +10,10 @@ export function createMySqlPool(env: Env): Pool {
     password: env.DB_PASSWORD,
     connectionLimit: 12,
     waitForConnections: true,
+    queueLimit: env.DB_QUEUE_LIMIT,
+    connectTimeout: env.DB_CONNECT_TIMEOUT_MS,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
     charset: 'utf8mb4',
     timezone: 'Z',
     namedPlaceholders: false

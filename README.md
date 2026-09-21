@@ -207,6 +207,12 @@ Consulte `DEPLOY-0.5.0.md`.
 
 Consulte `DEPLOY-0.5.1.md`.
 
+## Versão 0.5.3 — processamento durável de holerites
+
+Corrige buscas que podiam ficar presas em **Em execução** após a coleta Sage. O worker agora usa lease, heartbeat, watchdog, retentativa, conclusão transacional do run/job e outbox de Push. O dashboard também diferencia coleta, espera, geração, finalização e falhas.
+
+Consulte `DEPLOY-HOTFIX-0.5.3.md` e `DEPLOY-DURABLE-WORKER.md`.
+
 ## Versão 0.5.2 — hotfix de build
 
 - Corrige a tipagem das estatísticas do perfil do funcionário no MySQL.

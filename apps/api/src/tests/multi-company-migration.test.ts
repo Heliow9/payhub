@@ -32,6 +32,9 @@ describe('005_multi_company.sql', () => {
     expect(sql).toMatch(/ALTER TABLE connector_raw_batches[^;]+company_id/i);
     expect(sql).toMatch(/ALTER TABLE app_settings[^;]+company_id/i);
     expect(sql).toMatch(/uk_employee_groups_company_name \(company_id, name\)/i);
+    const durableSql = fs.readFileSync(new URL('../db/migrations/006_durable_worker.sql', import.meta.url), 'utf8');
+    expect(durableSql).toContain('notification_outbox');
+    expect(durableSql).toContain('normalization_state');
   });
 
   it('faz backfill da RealEnergy e preserva credenciais', () => {

@@ -258,3 +258,15 @@
   .company-option{padding:12px}
   .company-option-action{display:none}
 }
+
+/* Worker durável: saúde real do processamento */
+.worker-health{display:flex;align-items:center;gap:12px;border:1px solid #dfe5ee;background:#fff;border-radius:16px;padding:13px 15px;margin:14px 0 18px;box-shadow:0 3px 12px rgba(23,34,57,.035)}
+.worker-health-icon{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;background:#edf1f6;color:#7e8898;font-size:13px;flex:0 0 auto}
+.worker-health .grow{display:flex;flex-direction:column;gap:3px;min-width:0}
+.worker-health .grow strong{font-size:12px;color:#263249}
+.worker-health .grow span,.worker-health small{font-size:10px;color:#7b879a}
+.worker-health small{white-space:nowrap;margin-left:auto}
+.worker-health.success{border-color:#d8efe4;background:#fbfefc}.worker-health.success .worker-health-icon{background:#e8f8f0;color:#168a5d}
+.worker-health.warning{border-color:#f2e2bb;background:#fffdf8}.worker-health.warning .worker-health-icon{background:#fff3d7;color:#ac7112}
+.worker-health.danger{border-color:#f0d3d8;background:#fffafb}.worker-health.danger .worker-health-icon{background:#fdecef;color:#b83c51}
+@media(max-width:760px){.worker-health{align-items:flex-start}.worker-health small{margin-left:0;white-space:normal}}

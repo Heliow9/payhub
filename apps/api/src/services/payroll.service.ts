@@ -1,6 +1,6 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { badRequest, notFound } from '../core/errors.js';
-import { maskCpf } from '../core/security.js';
+import { maskCpf, sha256 } from '../core/security.js';
 import { parseJson } from '../core/json.js';
 import type { EmployeeContext, RequestMeta, RequestContext, UserContext } from '../core/types.js';
 import { AuditService } from './audit.service.js';
@@ -9,6 +9,7 @@ import { StorageService } from './storage.service.js';
 import { normalizePayrollBatches, type SourceBatch } from './normalizer.service.js';
 import { NotificationService } from './notification.service.js';
 import { withSignatureEvidenceDisclosure } from './signature-disclosure.js';
+import type { NormalizationClaim, NormalizationResult } from './normalization-queue.service.js';
 
 
 function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
@@ -25,40 +26,117 @@ export type PayrollExportEntry={payrollId:number;employeeName:string;competence:
 export class PayrollService{
   constructor(private pool:Pool,private storage:StorageService,private audit:AuditService,private notifications:NotificationService){}
 
-  async normalizeCompletedJob(jobId:number):Promise<{created:number;unchanged:number;skipped:number}>{
-    const [jobRows]=await this.pool.execute<RowDataPacket[]>(`SELECT j.id,j.company_id companyId,j.payroll_run_id payrollRunId,j.scope_json scopeJson,j.status,j.normalized_at normalizedAt,c.sage_company_code companyCode FROM import_jobs j JOIN companies c ON c.id=j.company_id WHERE j.id=? LIMIT 1`,[jobId]);
-    const job=jobRows[0];if(!job||job.status!=='COMPLETED'||job.normalizedAt)return{created:0,unchanged:0,skipped:0};
+  private async normalizationJob(claim:NormalizationClaim):Promise<RowDataPacket>{
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT j.id,j.company_id companyId,j.payroll_run_id payrollRunId,j.scope_json scopeJson,j.status,j.normalized_at normalizedAt,j.normalization_state normalizationState,j.normalization_owner normalizationOwner,c.sage_company_code companyCode FROM import_jobs j JOIN companies c ON c.id=j.company_id WHERE j.id=? AND j.company_id=? LIMIT 1`,[claim.jobId,claim.companyId]);
+    const job=rows[0];
+    if(!job||job.status!=='COMPLETED'||job.normalizedAt)throw badRequest('Job de folha não está disponível para normalização.','PAYROLL_JOB_NOT_NORMALIZABLE');
+    if(job.normalizationState!=='CLAIMED'||String(job.normalizationOwner??'')!==claim.owner)throw badRequest('Lease de normalização inválido ou expirado.','NORMALIZATION_LEASE_LOST');
+    if(job.payrollRunId!=null&&claim.payrollRunId!=null&&Number(job.payrollRunId)!==claim.payrollRunId)throw badRequest('O job está associado a outro processamento.','JOB_COMPANY_MISMATCH');
+    return job;
+  }
+
+  private async normalizedInput(job:RowDataPacket):Promise<ReturnType<typeof normalizePayrollBatches>>{
     const scope=parseJson<{employeeCodes?:string[]}>(job.scopeJson,{});const target=scope.employeeCodes??[];
-    const [batchRows]=await this.pool.execute<RowDataPacket[]>(`SELECT source_table sourceTable,payload_json payload FROM connector_raw_batches WHERE job_id=? AND company_id=? ORDER BY source_table,batch_number`,[jobId,job.companyId]);
+    const [batchRows]=await this.pool.execute<RowDataPacket[]>(`SELECT source_table sourceTable,payload_json payload FROM connector_raw_batches WHERE job_id=? AND company_id=? ORDER BY source_table,batch_number`,[job.id,job.companyId]);
     const batches:SourceBatch[]=batchRows.map((b)=>({sourceTable:String(b.sourceTable),rows:parseJson<Array<Record<string,unknown>>>(b.payload,[])}));
-    const normalized=normalizePayrollBatches(batches,target);let created=0,unchanged=0,skipped=0;
-    for(const p of normalized){
-      const [employeeRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,name,cpf,sage_employee_code sageCode,job_title jobTitle,DATE_FORMAT(admission_date,'%Y-%m-%d') admissionDate,sage_snapshot_json sageSnapshotJson FROM employees WHERE company_id=? AND sage_employee_code=? AND status='ACTIVE' LIMIT 1`,[job.companyId,p.sageEmployeeCode]);
-      const employee=employeeRows[0];if(!employee){const [foreignRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM employees WHERE company_id<>? AND sage_employee_code=? LIMIT 1`,[job.companyId,p.sageEmployeeCode]);if(foreignRows[0])throw badRequest('O job referencia funcionário de outra empresa.','JOB_COMPANY_MISMATCH');skipped++;continue;}
-      const [currentRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,version,source_hash sourceHash,status FROM payrolls WHERE company_id=? AND employee_id=? AND year=? AND month=? AND payroll_type=? AND is_current=1 ORDER BY version DESC LIMIT 1`,[job.companyId,employee.id,p.year,p.month,p.payrollType]);
-      const current=currentRows[0];if(current&&String(current.sourceHash)===p.sourceHash){unchanged++;continue;}
-      const version=current?Number(current.version)+1:1;
-      const conn=await this.pool.getConnection();let payrollId=0;
+    return normalizePayrollBatches(batches,target);
+  }
+
+  private payrollPdf(employee:RowDataPacket,p:ReturnType<typeof normalizePayrollBatches>[number]):Buffer{
+    const base=(p.rawReference?.base??{}) as Record<string,unknown>;
+    const salaryBase=p.items.find((i)=>i.code==='1'&&i.nature==='EARNING')?.amount??null;
+    const fgtsBase=base.vl_base_fgts==null?null:Number(base.vl_base_fgts);
+    return buildPayrollPdf({employeeName:String(employee.name),cpfMasked:maskCpf(String(employee.cpf)),sageCode:String(employee.sageCode),competence:`${String(p.month).padStart(2,'0')}/${p.year}`,typeLabel:p.payrollTypeLabel,jobTitle:employee.jobTitle?String(employee.jobTitle):null,admissionDate:employee.admissionDate?String(employee.admissionDate):null,cbo:sageSnapshotValue(employee.sageSnapshotJson,cboAliases),gross:p.gross,deductions:p.deductions,net:p.net,salaryBase,inssBase:base.vl_base_inss==null?null:Number(base.vl_base_inss),fgtsBase,fgtsMonth:fgtsBase==null?null:Math.round(fgtsBase*8)/100,irrfBase:base.vl_base_irrf==null?null:Number(base.vl_base_irrf),irrfBracket:0,items:p.items.map((i)=>({code:i.code,description:i.description,reference:i.reference,amount:i.amount,nature:i.nature}))});
+  }
+
+  private async originalDocumentIntact(pathValue:unknown,hashValue:unknown):Promise<boolean>{
+    const relative=String(pathValue??'');const expected=String(hashValue??'');if(!relative||!expected)return false;
+    try{const buffer=await this.storage.read(relative);return sha256(buffer)===expected;}catch{return false;}
+  }
+
+  private async employeeForPayroll(companyId:number,sageEmployeeCode:string,jobId:number,payrollRunId:number|null):Promise<RowDataPacket|null>{
+    const [employeeRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,name,cpf,sage_employee_code sageCode,job_title jobTitle,DATE_FORMAT(admission_date,'%Y-%m-%d') admissionDate,sage_snapshot_json sageSnapshotJson FROM employees WHERE company_id=? AND sage_employee_code=? AND status='ACTIVE' LIMIT 1`,[companyId,sageEmployeeCode]);
+    const employee=employeeRows[0];if(employee)return employee;
+    const [foreignRows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,company_id companyId FROM employees WHERE company_id<>? AND sage_employee_code=? LIMIT 1`,[companyId,sageEmployeeCode]);
+    if(foreignRows[0]){
+      await this.audit.record({companyId,action:'PAYROLL_NORMALIZATION_FAILED',targetType:'IMPORT_JOB',targetId:jobId,metadata:{jobId,payrollRunId,sageEmployeeCode,reason:'JOB_COMPANY_MISMATCH'}});
+      throw badRequest('O job referencia funcionário de outra empresa.','JOB_COMPANY_MISMATCH');
+    }
+    return null;
+  }
+
+  private async persistNormalizedPayroll(job:RowDataPacket,p:ReturnType<typeof normalizePayrollBatches>[number]):Promise<'created'|'repaired'|'unchanged'|'skipped'>{
+    const companyId=Number(job.companyId);const payrollRunId=job.payrollRunId==null?null:Number(job.payrollRunId);
+    const employee=await this.employeeForPayroll(companyId,p.sageEmployeeCode,Number(job.id),payrollRunId);if(!employee)return'skipped';
+    const [currentRows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.version,p.source_hash sourceHash,p.status,p.is_current isCurrent,d.original_path originalPath,d.original_sha256 originalSha FROM payrolls p LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE p.company_id=? AND p.employee_id=? AND p.year=? AND p.month=? AND p.payroll_type=? AND p.is_current=1 ORDER BY p.version DESC LIMIT 1`,[companyId,employee.id,p.year,p.month,p.payrollType]);
+    const current=currentRows[0];
+    const summary={employeeName:String(employee.name),competence:`${String(p.month).padStart(2,'0')}/${p.year}`,typeLabel:p.payrollTypeLabel,gross:p.gross,deductions:p.deductions,net:p.net,itemCount:p.items.length};
+
+    if(current&&String(current.sourceHash)===p.sourceHash){
+      if(String(current.status)==='SIGNED')return'unchanged';
+      const intact=await this.originalDocumentIntact(current.originalPath,current.originalSha);
+      if(intact&&!['PROCESSING','ERROR'].includes(String(current.status)))return'unchanged';
+      const pdf=this.payrollPdf(employee,p);const conn=await this.pool.getConnection();
       try{
         await conn.beginTransaction();
-        if(current){await conn.execute(`UPDATE payrolls SET is_current=0,status=IF(status='SIGNED',status,'REPLACED'),updated_at=UTC_TIMESTAMP() WHERE id=?`,[current.id]);}
-        const summary={employeeName:String(employee.name),competence:`${String(p.month).padStart(2,'0')}/${p.year}`,typeLabel:p.payrollTypeLabel,gross:p.gross,deductions:p.deductions,net:p.net,itemCount:p.items.length};
-        const [insert]=await conn.execute<ResultSetHeader>(`INSERT INTO payrolls (company_id,employee_id,payroll_run_id,company_code,sage_employee_code,year,month,payroll_type,payroll_type_label,version,is_current,status,gross_amount,deduction_amount,net_amount,source_hash,summary_json,raw_reference_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,'PROCESSING',?,?,?,?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,[job.companyId,employee.id,job.payrollRunId??null,String(job.companyCode),p.sageEmployeeCode,p.year,p.month,p.payrollType,p.payrollTypeLabel,version,p.gross,p.deductions,p.net,p.sourceHash,JSON.stringify(summary),JSON.stringify(p.rawReference)]);
-        payrollId=insert.insertId;
-        let order=0;for(const item of p.items){await conn.execute(`INSERT INTO payroll_items (payroll_id,event_code,description,reference_value,amount,nature,sort_order) VALUES (?,?,?,?,?,?,?)`,[payrollId,item.code,item.description,item.reference,item.amount,item.nature,order++]);}
+        const [lockedRows]=await conn.execute<RowDataPacket[]>(`SELECT id,status,source_hash sourceHash FROM payrolls WHERE id=? AND company_id=? AND is_current=1 FOR UPDATE`,[current.id,companyId]);const locked=lockedRows[0];
+        if(!locked)throw new Error(`Holerite #${current.id} deixou de ser a versão atual durante o reparo.`);
+        if(String(locked.status)==='SIGNED'){await conn.rollback();return'unchanged';}
+        if(String(locked.sourceHash)!==p.sourceHash)throw new Error(`Holerite #${current.id} mudou durante o reparo.`);
+        await conn.execute(`DELETE FROM payroll_items WHERE payroll_id=?`,[current.id]);let order=0;for(const item of p.items){await conn.execute(`INSERT INTO payroll_items (payroll_id,event_code,description,reference_value,amount,nature,sort_order) VALUES (?,?,?,?,?,?,?)`,[current.id,item.code,item.description,item.reference,item.amount,item.nature,order++]);}
+        await conn.execute(`UPDATE payrolls SET payroll_run_id=COALESCE(payroll_run_id,?),gross_amount=?,deduction_amount=?,net_amount=?,summary_json=?,raw_reference_json=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[payrollRunId,p.gross,p.deductions,p.net,JSON.stringify(summary),JSON.stringify(p.rawReference),current.id,companyId]);
+        const relative=`companies/${companyId}/payrolls/${p.year}/${String(p.month).padStart(2,'0')}/${current.id}/original.pdf`;const stored=await this.storage.write(relative,pdf);
+        await conn.execute(`INSERT INTO payroll_documents (payroll_id,original_path,original_sha256,created_at,updated_at) VALUES (?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE original_path=VALUES(original_path),original_sha256=VALUES(original_sha256),updated_at=UTC_TIMESTAMP()`,[current.id,stored.path,stored.sha256]);
+        await conn.execute(`UPDATE payrolls SET status=CASE WHEN status IN ('SIGNATURE_REQUESTED','VIEWED') THEN status ELSE 'READY' END,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[current.id,companyId]);
+        await conn.commit();return'repaired';
+      }catch(error){await conn.rollback();throw error;}finally{conn.release();}
+    }
+
+    if(current&&String(current.status)==='SIGNED'){
+      await this.audit.record({companyId,action:'PAYROLL_SOURCE_CHANGED_SIGNED_SKIPPED',targetType:'PAYROLL',targetId:current.id,metadata:{jobId:Number(job.id),payrollRunId,sageEmployeeCode:p.sageEmployeeCode,year:p.year,month:p.month,payrollType:p.payrollType}});
+      return'unchanged';
+    }
+
+    const pdf=this.payrollPdf(employee,p);const conn=await this.pool.getConnection();let payrollId=0;
+    try{
+      await conn.beginTransaction();
+      const [lockedCurrentRows]=await conn.execute<RowDataPacket[]>(`SELECT id,version,source_hash sourceHash,status FROM payrolls WHERE company_id=? AND employee_id=? AND year=? AND month=? AND payroll_type=? AND is_current=1 ORDER BY version DESC LIMIT 1 FOR UPDATE`,[companyId,employee.id,p.year,p.month,p.payrollType]);
+      const lockedCurrent=lockedCurrentRows[0];
+      if((current?.id??null)!==(lockedCurrent?.id??null))throw new Error('A versão atual do holerite mudou durante a normalização; o job será retomado.');
+      if(lockedCurrent&&String(lockedCurrent.status)==='SIGNED')throw new Error('Holerite assinado não pode ser substituído.');
+      const version=lockedCurrent?Number(lockedCurrent.version)+1:1;
+      if(lockedCurrent)await conn.execute(`UPDATE payrolls SET is_current=0,status=IF(status='SIGNED',status,'REPLACED'),updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[lockedCurrent.id,companyId]);
+      const [insert]=await conn.execute<ResultSetHeader>(`INSERT INTO payrolls (company_id,employee_id,payroll_run_id,company_code,sage_employee_code,year,month,payroll_type,payroll_type_label,version,is_current,status,gross_amount,deduction_amount,net_amount,source_hash,summary_json,raw_reference_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,'PROCESSING',?,?,?,?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,[companyId,employee.id,payrollRunId,String(job.companyCode),p.sageEmployeeCode,p.year,p.month,p.payrollType,p.payrollTypeLabel,version,p.gross,p.deductions,p.net,p.sourceHash,JSON.stringify(summary),JSON.stringify(p.rawReference)]);payrollId=insert.insertId;
+      let order=0;for(const item of p.items){await conn.execute(`INSERT INTO payroll_items (payroll_id,event_code,description,reference_value,amount,nature,sort_order) VALUES (?,?,?,?,?,?,?)`,[payrollId,item.code,item.description,item.reference,item.amount,item.nature,order++]);}
+      const relative=`companies/${companyId}/payrolls/${p.year}/${String(p.month).padStart(2,'0')}/${payrollId}/original.pdf`;const stored=await this.storage.write(relative,pdf);
+      await conn.execute(`INSERT INTO payroll_documents (payroll_id,original_path,original_sha256,created_at,updated_at) VALUES (?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,[payrollId,stored.path,stored.sha256]);
+      await conn.execute(`UPDATE payrolls SET status='READY',updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[payrollId,companyId]);
+      await conn.commit();return'created';
+    }catch(error){await conn.rollback();if(payrollId>0)await this.storage.remove(`companies/${companyId}/payrolls/${p.year}/${String(p.month).padStart(2,'0')}/${payrollId}/original.pdf`);throw error;}finally{conn.release();}
+  }
+
+  async normalizeClaimedJob(claim:NormalizationClaim,renew:()=>Promise<void>):Promise<NormalizationResult>{
+    const job=await this.normalizationJob(claim);const normalized=await this.normalizedInput(job);const result:NormalizationResult={created:0,repaired:0,unchanged:0,skipped:0};
+    for(const payroll of normalized){const outcome=await this.persistNormalizedPayroll(job,payroll);result[outcome]++;await renew();}
+    return result;
+  }
+
+  async normalizeCompletedJob(jobId:number):Promise<{created:number;unchanged:number;skipped:number}>{
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,company_id companyId,payroll_run_id payrollRunId,status,normalized_at normalizedAt,normalization_state normalizationState,normalization_attempt_count attempts FROM import_jobs WHERE id=? LIMIT 1`,[jobId]);const row=rows[0];if(!row||row.status!=='COMPLETED'||row.normalizedAt)return{created:0,unchanged:0,skipped:0};
+    const owner=`legacy-${process.pid}-${jobId}`;const [claimResult]=await this.pool.execute<ResultSetHeader>(`UPDATE import_jobs SET normalization_state='CLAIMED',normalization_owner=?,normalization_claimed_at=UTC_TIMESTAMP(),normalization_lease_until=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 15 MINUTE),normalization_attempt_count=normalization_attempt_count+1,normalization_error=NULL,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=? AND normalized_at IS NULL AND (normalization_state IS NULL OR normalization_state='PENDING' OR (normalization_state='CLAIMED' AND normalization_lease_until<UTC_TIMESTAMP()))`,[owner,jobId,row.companyId]);if(claimResult.affectedRows!==1)return{created:0,unchanged:0,skipped:0};
+    const claim:NormalizationClaim={jobId,companyId:Number(row.companyId),payrollRunId:row.payrollRunId==null?null:Number(row.payrollRunId),owner,attempt:Number(row.attempts??0)+1};
+    try{
+      const result=await this.normalizeClaimedJob(claim,async()=>undefined);const conn=await this.pool.getConnection();
+      try{
+        await conn.beginTransaction();
+        const [done]=await conn.execute<ResultSetHeader>(`UPDATE import_jobs SET normalization_state='COMPLETED',normalized_at=UTC_TIMESTAMP(),normalization_owner=NULL,normalization_lease_until=NULL,normalization_error=NULL,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=? AND normalization_owner=? AND normalization_state='CLAIMED' AND normalized_at IS NULL`,[jobId,claim.companyId,owner]);
+        if(done.affectedRows!==1)throw new Error(`Não foi possível concluir o job legado #${jobId}.`);
+        if(claim.payrollRunId){const status=result.skipped>0?'PARTIAL':'COMPLETED';await conn.execute(`UPDATE payroll_runs SET status=?,success_count=?,failure_count=?,message=?,finished_at=UTC_TIMESTAMP() WHERE id=? AND company_id=? AND status IN ('QUEUED','RUNNING')`,[status,result.created+result.repaired+result.unchanged,result.skipped,`${result.created} novo(s), ${result.repaired} reparado(s), ${result.unchanged} sem alteração, ${result.skipped} ignorado(s).`.slice(0,500),claim.payrollRunId,claim.companyId]);}
         await conn.commit();
       }catch(error){await conn.rollback();throw error;}finally{conn.release();}
-      try{
-        const base=(p.rawReference?.base??{}) as Record<string,unknown>;const salaryBase=p.items.find((i)=>i.code==='1'&&i.nature==='EARNING')?.amount??null;const fgtsBase=base.vl_base_fgts==null?null:Number(base.vl_base_fgts);const pdf=buildPayrollPdf({employeeName:String(employee.name),cpfMasked:maskCpf(String(employee.cpf)),sageCode:String(employee.sageCode),competence:`${String(p.month).padStart(2,'0')}/${p.year}`,typeLabel:p.payrollTypeLabel,jobTitle:employee.jobTitle?String(employee.jobTitle):null,admissionDate:employee.admissionDate?String(employee.admissionDate):null,cbo:sageSnapshotValue(employee.sageSnapshotJson,cboAliases),gross:p.gross,deductions:p.deductions,net:p.net,salaryBase,inssBase:base.vl_base_inss==null?null:Number(base.vl_base_inss),fgtsBase,fgtsMonth:fgtsBase==null?null:Math.round(fgtsBase*8)/100,irrfBase:base.vl_base_irrf==null?null:Number(base.vl_base_irrf),irrfBracket:0,items:p.items.map((i)=>({code:i.code,description:i.description,reference:i.reference,amount:i.amount,nature:i.nature}))});
-        const relative=`companies/${job.companyId}/payrolls/${p.year}/${String(p.month).padStart(2,'0')}/${payrollId}/original.pdf`;const stored=await this.storage.write(relative,pdf);
-        await this.pool.execute(`INSERT INTO payroll_documents (payroll_id,original_path,original_sha256,created_at,updated_at) VALUES (?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,[payrollId,stored.path,stored.sha256]);
-        await this.pool.execute(`UPDATE payrolls SET status='READY',updated_at=UTC_TIMESTAMP() WHERE id=?`,[payrollId]);created++;
-      }catch(error){await this.pool.execute(`UPDATE payrolls SET status='ERROR',updated_at=UTC_TIMESTAMP() WHERE id=?`,[payrollId]);throw error;}
-    }
-    await this.pool.execute(`UPDATE import_jobs SET normalized_at=UTC_TIMESTAMP(),updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[jobId,job.companyId]);
-    if(job.payrollRunId){const status=skipped>0?'PARTIAL':'COMPLETED';await this.pool.execute(`UPDATE payroll_runs SET status=?,success_count=?,failure_count=?,message=?,finished_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[status,created+unchanged,skipped,`${created} novo(s), ${unchanged} sem alteração, ${skipped} ignorado(s).`,job.payrollRunId,job.companyId]);}
-    await this.notifications.notifyAdmins(Number(job.companyId),{category:'IMPORT_COMPLETED',title:'Importação de holerites concluída',body:`${created} novo(s), ${unchanged} sem alteração e ${skipped} ignorado(s).`,url:'/#/payrolls',dedupKey:`import-completed:${jobId}`});
-    return{created,unchanged,skipped};
+      await this.notifications.notifyAdmins(claim.companyId,{category:'IMPORT_COMPLETED',title:'Importação de holerites concluída',body:`${result.created} novo(s), ${result.repaired} reparado(s), ${result.unchanged} sem alteração e ${result.skipped} ignorado(s).`,url:'/#/payrolls',dedupKey:`import-completed:${jobId}`});
+      return{created:result.created,unchanged:result.unchanged+result.repaired,skipped:result.skipped};
+    }catch(error){await this.pool.execute(`UPDATE import_jobs SET normalization_state='PENDING',normalization_owner=NULL,normalization_lease_until=NULL,normalization_error=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=? AND normalization_owner=?`,[(error instanceof Error?error.message:String(error)).slice(0,1000),jobId,claim.companyId,owner]);throw error;}
   }
 
   async listAdmin(context:UserContext,filters:{employeeId?:number;groupId?:number;year?:number;month?:number;status?:string;type?:number}={}):Promise<Record<string,unknown>[]>{
