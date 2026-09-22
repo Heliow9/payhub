@@ -70,8 +70,9 @@ export function dashboardRoutes(pool: Pool, workerPollSeconds = 20) {
       const [runRows] = await pool.execute<RowDataPacket[]>(
         `SELECT r.id,r.source,r.status,r.year,r.month,r.employee_count employeeCount,
                 r.success_count successCount,r.failure_count failureCount,r.message,
-                r.created_at createdAt,g.name groupName,
-                j.status jobStatus,j.normalization_state normalizationState,j.normalized_at normalizedAt
+                r.created_at createdAt,r.started_at startedAt,r.finished_at finishedAt,g.name groupName,
+                TIMESTAMPDIFF(SECOND,COALESCE(r.started_at,r.created_at),COALESCE(r.finished_at,UTC_TIMESTAMP())) durationSeconds,
+                j.id jobId,j.status jobStatus,j.normalization_state normalizationState,j.normalized_at normalizedAt
            FROM payroll_runs r
            LEFT JOIN employee_groups g ON g.id=r.group_id AND g.company_id=r.company_id
            LEFT JOIN import_jobs j ON j.payroll_run_id=r.id AND j.company_id=r.company_id AND j.job_type='PAYROLL_IMPORT'

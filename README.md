@@ -16,7 +16,7 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - Arquitetura **multiempresa**: todo recurso administrativo/funcional é isolado por `company_id`; o código Sage é configuração interna de cada empresa, nunca uma empresa fixa na UI.
 - Funcionário só pode ser cadastrado se o CPF for localizado no Sage.
 - Cada funcionário pertence a exatamente um grupo.
-- Cada grupo define tipos de folha e vários horários de busca, executados de segunda a sexta.
+- Cada grupo define tipos de folha, vários horários de busca e os dias da semana em que a automação deve executar.
 - Busca automática usa sempre o mês atual em `America/Sao_Paulo`.
 - Holerite importado fica administrativo até ser liberado como `ASSINATURA_SOLICITADA`.
 - Funcionário entra com CPF + PIN numérico de 6 dígitos.
@@ -71,6 +71,32 @@ PayHub centraliza integração com Sage, cadastro de funcionários, grupos, auto
 - A RealEnergy é preservada pela migration `005_multi_company.sql` como empresa original, mantendo credenciais e dados existentes.
 - Cada empresa possui exatamente um MASTER ativo registrado em `company_masters`; os demais usuários administrativos são ANALISTAS e os e-mails permanecem globalmente únicos.
 - Antes de produção, execute o roteiro de backup, verificação e smoke test em `DEPLOY-MULTIEMPRESA.md`.
+
+## Versão 0.6.0 — performance e verificação documental
+
+- Número único permanente em cada versão de holerite e consulta pública em `/#/verificar`.
+- Conferência por SHA-256 do PDF original/assinado, evidência, HMAC e cadeia de eventos.
+- Código de verificação impresso no PDF e repetido após as informações de assinatura no documento assinado.
+- `render_hash`, normalizador indexado, pré-carga em lote, INSERT em lote e concorrência controlada na geração.
+- Batches Sage concluídos compactados como `.json.gz` para reduzir `LONGTEXT` no MySQL.
+- Heartbeat periódico e hotfix PM2 incorporado ao worker.
+- Sage Connector 3.2.0 reduz o volume de leitura/transmissão durante `PAYROLL_IMPORT`.
+
+Para produção, siga obrigatoriamente `DEPLOY-0.6.0.md`.
+
+## Versão 0.6.1 — agenda durável e logs completos de busca em lote
+
+- Busca automática por grupo deixa de depender do minuto exato: uma agenda de hoje que já venceu e ainda não foi enfileirada é recuperada pelo worker.
+- Execuções agendadas usam claim com lease de 5 minutos, até 3 tentativas e vínculo idempotente entre `schedule_executions` e `payroll_runs`.
+- O scheduler é verificado antes da normalização pesada em cada ciclo do worker.
+- Dias da semana passam a ser configuráveis por grupo (segunda a domingo), mantendo segunda a sexta como padrão retrocompatível.
+- Edição de horários preserva os IDs das agendas e o histórico anterior; horários removidos são desabilitados em vez de apagados.
+- Nova timeline `payroll_run_events` registra enfileiramento, claim do Connector Sage, logs de coleta, normalização, geração, retentativas e conclusão/falha.
+- O modal **Execuções e logs** do grupo mostra o histórico ponta a ponta; os logs da Integração Sage também incorporam os eventos PayHub da execução.
+- Cards dos grupos mostram última execução, quantidade processada, falhas, duração e próxima execução.
+- Novo verificador `verify:group-scheduling` valida consistência da agenda durável e da timeline.
+
+Para produção, use `DEPLOY-0.6.1.md`. A atualização pode partir tanto da 0.6.0 quanto da 0.5.3; o migrador aplica apenas as migrations ainda pendentes.
 
 ## Instalação
 

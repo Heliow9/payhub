@@ -118,7 +118,7 @@ export function LoginPage() {
         <button className="primary-button" disabled={loading}>{loading ? 'Ativando…' : 'Ativar e entrar'}</button>
         <button type="button" className="link-button" onClick={()=>{setFirst(false);setError('');}}>Voltar ao login</button>
       </form>}
-      <div className="security-note">Sessão protegida • Credenciais criptografadas • Auditoria</div>
+      <a className="verify-entry-link" href="/#/verificar">Verificar autenticidade de um documento</a><div className="security-note">Sessão protegida • Credenciais criptografadas • Auditoria</div>
     </div></section>
   </main>;
 }

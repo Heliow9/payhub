@@ -27,8 +27,16 @@ public sealed class SageReadOnlyClient
         "ProcEvento", "EventoGVigencia", "ProcBase", "MovCapa", "MovEvento",
     ];
 
+    // PAYROLL_IMPORT não precisa transportar novamente os cadastros do funcionário:
+    // eles já estão sincronizados no PayHub. Isso reduz leitura no Sage, tráfego e JSON bruto.
+    private static readonly string[] PayrollTables =
+    [
+        "ProcEvento", "MovEvento", "ProcBase", "MovCapa", "EventoGVigencia",
+    ];
+
     private static readonly string[] EmployeeAliases = ["cd_funcionario", "codigo_funcionario", "cod_funcionario", "id_funcionario", "funcionario"];
     private static readonly string[] CompanyAliases = ["cd_empresa", "codigo_empresa", "cod_empresa", "empresa"];
+    private static readonly string[] EventAliases = ["cd_evento", "codigo_evento", "evento", "id_evento"];
     private static readonly string[] CpfAliases = ["cpf", "nr_cpf", "nu_cpf", "ds_cpf", "cd_cpf", "cpf_funcionario", "nr_cpf_funcionario"];
     private static readonly string[] NameAliases = ["nm_funcionario", "nome_funcionario", "nome", "nm_pessoa", "nome_pessoa"];
     private static readonly string[] BirthAliases = ["dt_nascimento", "data_nascimento", "dtnascimento", "nascimento"];
@@ -266,8 +274,9 @@ public sealed class SageReadOnlyClient
 
         await using var connection = CreateConnection();
         await connection.OpenAsync(cancellationToken);
+        var eventCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var table in AllowedTables)
+        foreach (var table in PayrollTables)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var columns = await GetColumnsAsync(connection, table, cancellationToken);
@@ -301,6 +310,25 @@ public sealed class SageReadOnlyClient
                 throw new InvalidOperationException($"Tabela {table} não possui código de funcionário reconhecido; leitura ampla bloqueada.");
             }
 
+            if (isGlobalReferenceTable)
+            {
+                // Só traz as definições dos eventos encontrados em ProcEvento/MovEvento.
+                // Evita transferir a EventoGVigencia inteira em toda geração de holerites.
+                if (eventCodes.Count == 0) continue;
+                var eventColumn = FindColumn(columns, EventAliases);
+                if (eventColumn is null)
+                    throw new InvalidOperationException("EventoGVigencia não possui código de evento reconhecido; leitura global foi bloqueada para evitar carga ampla.");
+                var eventParameters = new List<string>();
+                var eventIndex = 0;
+                foreach (var code in eventCodes.Take(1800))
+                {
+                    var name = $"@event{eventIndex++}";
+                    eventParameters.Add(name);
+                    command.Parameters.Add(new SqlParameter(name, SqlDbType.NVarChar, 100) { Value = code });
+                }
+                predicates.Add($"CONVERT(nvarchar(100), [{EscapeIdentifier(eventColumn)}]) IN ({string.Join(",", eventParameters)})");
+            }
+
             // EventoGVigencia é uma tabela global de definição dos eventos.
             // As colunas "ano", "mes" ou "tipo" nela não representam, necessariamente,
             // a competência/tipo da folha. Aplicar os filtros de PAYROLL_IMPORT aqui elimina
@@ -328,7 +356,13 @@ public sealed class SageReadOnlyClient
             var batch = new List<Dictionary<string, object?>>(_options.BatchSize); var batchNumber = 0;
             while (await reader.ReadAsync(cancellationToken))
             {
-                batch.Add(ReadRow(reader));
+                var row = ReadRow(reader);
+                if (table is "ProcEvento" or "MovEvento")
+                {
+                    var eventCode = First(row, EventAliases);
+                    if (!string.IsNullOrWhiteSpace(eventCode)) eventCodes.Add(eventCode);
+                }
+                batch.Add(row);
                 if (batch.Count < _options.BatchSize) continue;
                 yield return (table, batchNumber++, batch);
                 batch = new List<Dictionary<string, object?>>(_options.BatchSize);

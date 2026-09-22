@@ -25,6 +25,7 @@ export interface NormalizedPayroll {
   net: number | null;
   items: NormalizedItem[];
   sourceHash: string;
+  renderHash: string;
   rawReference: Record<string, unknown>;
 }
 
@@ -103,6 +104,34 @@ function rowKey(row: Record<string, unknown>): PayrollKey | null {
 
 function keyText(key: PayrollKey): string {
   return `${key.employee}|${key.year}|${key.month}|${key.type}`;
+}
+
+function competenceKey(key: PayrollKey): string {
+  return `${key.employee}|${key.year}|${key.month}`;
+}
+
+function groupPayrollRows(rows:Array<Record<string,unknown>>):Map<string,Array<Record<string,unknown>>>{
+  const grouped=new Map<string,Array<Record<string,unknown>>>();
+  for(const row of rows){
+    const key=rowKey(row);
+    if(!key)continue;
+    const k=keyText(key);
+    const bucket=grouped.get(k);
+    if(bucket)bucket.push(row);else grouped.set(k,[row]);
+  }
+  return grouped;
+}
+
+function groupCompetenceRows(rows:Array<Record<string,unknown>>):Map<string,Array<Record<string,unknown>>>{
+  const grouped=new Map<string,Array<Record<string,unknown>>>();
+  for(const row of rows){
+    const key=rowKey(row);
+    if(!key)continue;
+    const k=competenceKey(key);
+    const bucket=grouped.get(k);
+    if(bucket)bucket.push(row);else grouped.set(k,[row]);
+  }
+  return grouped;
 }
 
 function samePayroll(row: Record<string, unknown>, key: PayrollKey): boolean {
@@ -255,9 +284,14 @@ export function normalizePayrollBatches(batches: SourceBatch[], targetEmployees:
     }
   }
 
+  const financialByPayroll=groupPayrollRows(financialEvents);
+  const movementByPayroll=groupPayrollRows(movEvento);
+  const baseByPayroll=groupPayrollRows(procBase);
+  const capaByCompetence=groupCompetenceRows(movCapa);
+
   const result: NormalizedPayroll[] = [];
   for (const [keyString, meta] of keys) {
-    const eventRows = financialEvents.filter((row) => samePayroll(row, meta));
+    const eventRows = financialByPayroll.get(keyString) ?? [];
     if (eventRows.length === 0) continue;
 
     const items: NormalizedItem[] = sortPayrollItems(eventRows.map((row) => {
@@ -288,9 +322,9 @@ export function normalizePayrollBatches(batches: SourceBatch[], targetEmployees:
     const deductions = deductionValue > 0 ? rounded(deductionValue) : null;
     const net = gross !== null ? rounded(gross - (deductions ?? 0)) : null;
 
-    const capaRow = movCapa.find((row) => sameEmployeeCompetence(row, meta)) ?? {};
-    const baseRow = procBase.find((row) => samePayroll(row, meta)) ?? {};
-    const movementRows = movEvento.filter((row) => samePayroll(row, meta));
+    const capaRow = capaByCompetence.get(competenceKey(meta))?.[0] ?? {};
+    const baseRow = baseByPayroll.get(keyString)?.[0] ?? {};
+    const movementRows = movementByPayroll.get(keyString) ?? [];
     const selectedDefinitions = eventRows.map((row) => {
       const code = text(pick(row, aliases.event));
       return applicableDefinition(definitionsByCode, code, meta.year, meta.month) ?? null;
@@ -313,6 +347,23 @@ export function normalizePayrollBatches(batches: SourceBatch[], targetEmployees:
       definicoes: selectedDefinitions,
     }));
 
+    const renderHash = sha256(canonicalJson({
+      documentTemplateVersion:'payhub-holerite-render-v3',
+      employee:meta.employee,
+      year:meta.year,
+      month:meta.month,
+      payrollType:meta.type,
+      gross,
+      deductions,
+      net,
+      base:{
+        vl_base_inss:(baseRow as Record<string,unknown>).vl_base_inss??null,
+        vl_base_fgts:(baseRow as Record<string,unknown>).vl_base_fgts??null,
+        vl_base_irrf:(baseRow as Record<string,unknown>).vl_base_irrf??null,
+      },
+      items,
+    }));
+
     let label = typeLabels[meta.type] ?? `Tipo ${meta.type}`;
     const hasRescisaoEvent = items.some((item) => item.code === '180' || item.description.toUpperCase().includes('LIQUIDO RESCISAO'));
     if (meta.type === 2 && hasRescisaoEvent) label = 'Rescisão';
@@ -328,6 +379,7 @@ export function normalizePayrollBatches(batches: SourceBatch[], targetEmployees:
       net,
       items,
       sourceHash,
+      renderHash,
       rawReference,
     });
   }

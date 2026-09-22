@@ -1,4 +1,6 @@
-import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { promisify } from 'node:util';
+import { gzip } from 'node:zlib';
 import { badRequest, notFound } from '../core/errors.js';
 import { maskCpf, sha256 } from '../core/security.js';
 import { parseJson } from '../core/json.js';
@@ -10,6 +12,9 @@ import { normalizePayrollBatches, type SourceBatch } from './normalizer.service.
 import { NotificationService } from './notification.service.js';
 import { withSignatureEvidenceDisclosure } from './signature-disclosure.js';
 import type { NormalizationClaim, NormalizationResult } from './normalization-queue.service.js';
+import { createDocumentNumber } from './document-number.js';
+
+const gzipAsync=promisify(gzip);
 
 
 function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
@@ -24,7 +29,7 @@ function exportFileSafe(value:string):string{return value.normalize('NFD').repla
 export type PayrollExportEntry={payrollId:number;employeeName:string;competence:string;typeLabel:string;status:string;documentKind:'ASSINADO'|'ORIGINAL';sha256:string;filename:string;buffer:Buffer};
 
 export class PayrollService{
-  constructor(private pool:Pool,private storage:StorageService,private audit:AuditService,private notifications:NotificationService){}
+  constructor(private pool:Pool,private storage:StorageService,private audit:AuditService,private notifications:NotificationService,private appOrigin='http://localhost'){}
 
   private async normalizationJob(claim:NormalizationClaim):Promise<RowDataPacket>{
     const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT j.id,j.company_id companyId,j.payroll_run_id payrollRunId,j.scope_json scopeJson,j.status,j.normalized_at normalizedAt,j.normalization_state normalizationState,j.normalization_owner normalizationOwner,c.sage_company_code companyCode FROM import_jobs j JOIN companies c ON c.id=j.company_id WHERE j.id=? AND j.company_id=? LIMIT 1`,[claim.jobId,claim.companyId]);
@@ -42,11 +47,32 @@ export class PayrollService{
     return normalizePayrollBatches(batches,target);
   }
 
-  private payrollPdf(employee:RowDataPacket,p:ReturnType<typeof normalizePayrollBatches>[number]):Buffer{
+  private payrollPdf(employee:RowDataPacket,p:ReturnType<typeof normalizePayrollBatches>[number],documentNumber:string):Buffer{
     const base=(p.rawReference?.base??{}) as Record<string,unknown>;
     const salaryBase=p.items.find((i)=>i.code==='1'&&i.nature==='EARNING')?.amount??null;
     const fgtsBase=base.vl_base_fgts==null?null:Number(base.vl_base_fgts);
-    return buildPayrollPdf({employeeName:String(employee.name),cpfMasked:maskCpf(String(employee.cpf)),sageCode:String(employee.sageCode),competence:`${String(p.month).padStart(2,'0')}/${p.year}`,typeLabel:p.payrollTypeLabel,jobTitle:employee.jobTitle?String(employee.jobTitle):null,admissionDate:employee.admissionDate?String(employee.admissionDate):null,cbo:sageSnapshotValue(employee.sageSnapshotJson,cboAliases),gross:p.gross,deductions:p.deductions,net:p.net,salaryBase,inssBase:base.vl_base_inss==null?null:Number(base.vl_base_inss),fgtsBase,fgtsMonth:fgtsBase==null?null:Math.round(fgtsBase*8)/100,irrfBase:base.vl_base_irrf==null?null:Number(base.vl_base_irrf),irrfBracket:0,items:p.items.map((i)=>({code:i.code,description:i.description,reference:i.reference,amount:i.amount,nature:i.nature}))});
+    return buildPayrollPdf({employeeName:String(employee.name),cpfMasked:maskCpf(String(employee.cpf)),sageCode:String(employee.sageCode),competence:`${String(p.month).padStart(2,'0')}/${p.year}`,typeLabel:p.payrollTypeLabel,jobTitle:employee.jobTitle?String(employee.jobTitle):null,admissionDate:employee.admissionDate?String(employee.admissionDate):null,cbo:sageSnapshotValue(employee.sageSnapshotJson,cboAliases),gross:p.gross,deductions:p.deductions,net:p.net,salaryBase,inssBase:base.vl_base_inss==null?null:Number(base.vl_base_inss),fgtsBase,fgtsMonth:fgtsBase==null?null:Math.round(fgtsBase*8)/100,irrfBase:base.vl_base_irrf==null?null:Number(base.vl_base_irrf),irrfBracket:0,items:p.items.map((i)=>({code:i.code,description:i.description,reference:i.reference,amount:i.amount,nature:i.nature})),documentNumber,verificationUrl:`${this.appOrigin}/#/verificar?codigo=${encodeURIComponent(documentNumber)}`});
+  }
+
+  private async allocateDocumentNumber(year:number,month:number):Promise<string>{
+    for(let attempt=0;attempt<8;attempt++){
+      const candidate=createDocumentNumber(year,month);
+      const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT id FROM payrolls WHERE document_number=? LIMIT 1`,[candidate]);
+      if(!rows[0])return candidate;
+    }
+    throw new Error('Não foi possível reservar um número único para o holerite.');
+  }
+
+  private async insertPayrollItems(conn:PoolConnection,payrollId:number,items:ReturnType<typeof normalizePayrollBatches>[number]['items']):Promise<void>{
+    const chunkSize=200;
+    for(let start=0;start<items.length;start+=chunkSize){
+      const chunk=items.slice(start,start+chunkSize);
+      if(!chunk.length)continue;
+      const placeholders=chunk.map(()=>'(?,?,?,?,?,?,?)').join(',');
+      const params:unknown[]=[];
+      chunk.forEach((item,index)=>params.push(payrollId,item.code,item.description,item.reference,item.amount,item.nature,start+index));
+      await conn.query(`INSERT INTO payroll_items (payroll_id,event_code,description,reference_value,amount,nature,sort_order) VALUES ${placeholders}`,params);
+    }
   }
 
   private async originalDocumentIntact(pathValue:unknown,hashValue:unknown):Promise<boolean>{
@@ -65,26 +91,40 @@ export class PayrollService{
     return null;
   }
 
-  private async persistNormalizedPayroll(job:RowDataPacket,p:ReturnType<typeof normalizePayrollBatches>[number]):Promise<'created'|'repaired'|'unchanged'|'skipped'>{
+  private async preloadEmployees(companyId:number,payrolls:ReturnType<typeof normalizePayrollBatches>):Promise<Map<string,RowDataPacket>>{
+    const codes=[...new Set(payrolls.map((p)=>String(p.sageEmployeeCode)).filter(Boolean))];const result=new Map<string,RowDataPacket>();const chunkSize=500;
+    for(let start=0;start<codes.length;start+=chunkSize){const chunk=codes.slice(start,start+chunkSize);if(!chunk.length)continue;const placeholders=chunk.map(()=>'?').join(',');const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,name,cpf,sage_employee_code sageCode,job_title jobTitle,DATE_FORMAT(admission_date,'%Y-%m-%d') admissionDate,sage_snapshot_json sageSnapshotJson FROM employees WHERE company_id=? AND status='ACTIVE' AND sage_employee_code IN (${placeholders})`,[companyId,...chunk]);for(const row of rows)result.set(String(row.sageCode),row);}
+    return result;
+  }
+
+  private async preloadCurrentPayrolls(companyId:number,employees:Map<string,RowDataPacket>,payrolls:ReturnType<typeof normalizePayrollBatches>):Promise<Map<string,RowDataPacket>>{
+    const employeeIds=[...new Set([...employees.values()].map((row)=>Number(row.id)).filter((id)=>Number.isFinite(id)&&id>0))];const result=new Map<string,RowDataPacket>();if(!employeeIds.length)return result;
+    const years=[...new Set(payrolls.map((p)=>p.year))];const months=[...new Set(payrolls.map((p)=>p.month))];
+    const idPlaceholders=employeeIds.map(()=>'?').join(',');const yearPlaceholders=years.map(()=>'?').join(',');const monthPlaceholders=months.map(()=>'?').join(',');
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.employee_id employeeId,p.year,p.month,p.payroll_type payrollType,p.version,p.document_number documentNumber,p.source_hash sourceHash,p.render_hash renderHash,p.status,p.is_current isCurrent,d.original_path originalPath,d.original_sha256 originalSha FROM payrolls p LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE p.company_id=? AND p.is_current=1 AND p.employee_id IN (${idPlaceholders}) AND p.year IN (${yearPlaceholders}) AND p.month IN (${monthPlaceholders})`,[companyId,...employeeIds,...years,...months]);
+    for(const row of rows)result.set(`${row.employeeId}|${row.year}|${row.month}|${row.payrollType}`,row);return result;
+  }
+
+  private async persistNormalizedPayroll(job:RowDataPacket,p:ReturnType<typeof normalizePayrollBatches>[number],employeeOverride?:RowDataPacket|null,currentOverride?:RowDataPacket|null):Promise<'created'|'repaired'|'unchanged'|'skipped'>{
     const companyId=Number(job.companyId);const payrollRunId=job.payrollRunId==null?null:Number(job.payrollRunId);
-    const employee=await this.employeeForPayroll(companyId,p.sageEmployeeCode,Number(job.id),payrollRunId);if(!employee)return'skipped';
-    const [currentRows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.version,p.source_hash sourceHash,p.status,p.is_current isCurrent,d.original_path originalPath,d.original_sha256 originalSha FROM payrolls p LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE p.company_id=? AND p.employee_id=? AND p.year=? AND p.month=? AND p.payroll_type=? AND p.is_current=1 ORDER BY p.version DESC LIMIT 1`,[companyId,employee.id,p.year,p.month,p.payrollType]);
-    const current=currentRows[0];
+    const employee=employeeOverride===undefined?await this.employeeForPayroll(companyId,p.sageEmployeeCode,Number(job.id),payrollRunId):employeeOverride;if(!employee)return'skipped';
+    let current=currentOverride;
+    if(currentOverride===undefined){const [currentRows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.version,p.document_number documentNumber,p.source_hash sourceHash,p.render_hash renderHash,p.status,p.is_current isCurrent,d.original_path originalPath,d.original_sha256 originalSha FROM payrolls p LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE p.company_id=? AND p.employee_id=? AND p.year=? AND p.month=? AND p.payroll_type=? AND p.is_current=1 ORDER BY p.version DESC LIMIT 1`,[companyId,employee.id,p.year,p.month,p.payrollType]);current=currentRows[0]??null;}
     const summary={employeeName:String(employee.name),competence:`${String(p.month).padStart(2,'0')}/${p.year}`,typeLabel:p.payrollTypeLabel,gross:p.gross,deductions:p.deductions,net:p.net,itemCount:p.items.length};
 
-    if(current&&String(current.sourceHash)===p.sourceHash){
+    if(current&&(String(current.renderHash??'')===p.renderHash||String(current.sourceHash)===p.sourceHash)){
       if(String(current.status)==='SIGNED')return'unchanged';
       const intact=await this.originalDocumentIntact(current.originalPath,current.originalSha);
       if(intact&&!['PROCESSING','ERROR'].includes(String(current.status)))return'unchanged';
-      const pdf=this.payrollPdf(employee,p);const conn=await this.pool.getConnection();
+      const documentNumber=String(current.documentNumber);const pdf=this.payrollPdf(employee,p,documentNumber);const conn=await this.pool.getConnection();
       try{
         await conn.beginTransaction();
-        const [lockedRows]=await conn.execute<RowDataPacket[]>(`SELECT id,status,source_hash sourceHash FROM payrolls WHERE id=? AND company_id=? AND is_current=1 FOR UPDATE`,[current.id,companyId]);const locked=lockedRows[0];
+        const [lockedRows]=await conn.execute<RowDataPacket[]>(`SELECT id,status,source_hash sourceHash,render_hash renderHash FROM payrolls WHERE id=? AND company_id=? AND is_current=1 FOR UPDATE`,[current.id,companyId]);const locked=lockedRows[0];
         if(!locked)throw new Error(`Holerite #${current.id} deixou de ser a versão atual durante o reparo.`);
         if(String(locked.status)==='SIGNED'){await conn.rollback();return'unchanged';}
-        if(String(locked.sourceHash)!==p.sourceHash)throw new Error(`Holerite #${current.id} mudou durante o reparo.`);
-        await conn.execute(`DELETE FROM payroll_items WHERE payroll_id=?`,[current.id]);let order=0;for(const item of p.items){await conn.execute(`INSERT INTO payroll_items (payroll_id,event_code,description,reference_value,amount,nature,sort_order) VALUES (?,?,?,?,?,?,?)`,[current.id,item.code,item.description,item.reference,item.amount,item.nature,order++]);}
-        await conn.execute(`UPDATE payrolls SET payroll_run_id=COALESCE(payroll_run_id,?),gross_amount=?,deduction_amount=?,net_amount=?,summary_json=?,raw_reference_json=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[payrollRunId,p.gross,p.deductions,p.net,JSON.stringify(summary),JSON.stringify(p.rawReference),current.id,companyId]);
+        if(String(locked.renderHash??'')!==p.renderHash&&String(locked.sourceHash)!==p.sourceHash)throw new Error(`Holerite #${current.id} mudou durante o reparo.`);
+        await conn.execute(`DELETE FROM payroll_items WHERE payroll_id=?`,[current.id]);await this.insertPayrollItems(conn,Number(current.id),p.items);
+        await conn.execute(`UPDATE payrolls SET payroll_run_id=COALESCE(payroll_run_id,?),gross_amount=?,deduction_amount=?,net_amount=?,source_hash=?,render_hash=?,summary_json=?,raw_reference_json=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[payrollRunId,p.gross,p.deductions,p.net,p.sourceHash,p.renderHash,JSON.stringify(summary),JSON.stringify(p.rawReference),current.id,companyId]);
         const relative=`companies/${companyId}/payrolls/${p.year}/${String(p.month).padStart(2,'0')}/${current.id}/original.pdf`;const stored=await this.storage.write(relative,pdf);
         await conn.execute(`INSERT INTO payroll_documents (payroll_id,original_path,original_sha256,created_at,updated_at) VALUES (?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE original_path=VALUES(original_path),original_sha256=VALUES(original_sha256),updated_at=UTC_TIMESTAMP()`,[current.id,stored.path,stored.sha256]);
         await conn.execute(`UPDATE payrolls SET status=CASE WHEN status IN ('SIGNATURE_REQUESTED','VIEWED') THEN status ELSE 'READY' END,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[current.id,companyId]);
@@ -97,7 +137,7 @@ export class PayrollService{
       return'unchanged';
     }
 
-    const pdf=this.payrollPdf(employee,p);const conn=await this.pool.getConnection();let payrollId=0;
+    const documentNumber=await this.allocateDocumentNumber(p.year,p.month);const pdf=this.payrollPdf(employee,p,documentNumber);const conn=await this.pool.getConnection();let payrollId=0;
     try{
       await conn.beginTransaction();
       const [lockedCurrentRows]=await conn.execute<RowDataPacket[]>(`SELECT id,version,source_hash sourceHash,status FROM payrolls WHERE company_id=? AND employee_id=? AND year=? AND month=? AND payroll_type=? AND is_current=1 ORDER BY version DESC LIMIT 1 FOR UPDATE`,[companyId,employee.id,p.year,p.month,p.payrollType]);
@@ -106,8 +146,8 @@ export class PayrollService{
       if(lockedCurrent&&String(lockedCurrent.status)==='SIGNED')throw new Error('Holerite assinado não pode ser substituído.');
       const version=lockedCurrent?Number(lockedCurrent.version)+1:1;
       if(lockedCurrent)await conn.execute(`UPDATE payrolls SET is_current=0,status=IF(status='SIGNED',status,'REPLACED'),updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[lockedCurrent.id,companyId]);
-      const [insert]=await conn.execute<ResultSetHeader>(`INSERT INTO payrolls (company_id,employee_id,payroll_run_id,company_code,sage_employee_code,year,month,payroll_type,payroll_type_label,version,is_current,status,gross_amount,deduction_amount,net_amount,source_hash,summary_json,raw_reference_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,'PROCESSING',?,?,?,?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,[companyId,employee.id,payrollRunId,String(job.companyCode),p.sageEmployeeCode,p.year,p.month,p.payrollType,p.payrollTypeLabel,version,p.gross,p.deductions,p.net,p.sourceHash,JSON.stringify(summary),JSON.stringify(p.rawReference)]);payrollId=insert.insertId;
-      let order=0;for(const item of p.items){await conn.execute(`INSERT INTO payroll_items (payroll_id,event_code,description,reference_value,amount,nature,sort_order) VALUES (?,?,?,?,?,?,?)`,[payrollId,item.code,item.description,item.reference,item.amount,item.nature,order++]);}
+      const [insert]=await conn.execute<ResultSetHeader>(`INSERT INTO payrolls (document_number,company_id,employee_id,payroll_run_id,company_code,sage_employee_code,year,month,payroll_type,payroll_type_label,version,is_current,status,gross_amount,deduction_amount,net_amount,source_hash,render_hash,summary_json,raw_reference_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,'PROCESSING',?,?,?,?,?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,[documentNumber,companyId,employee.id,payrollRunId,String(job.companyCode),p.sageEmployeeCode,p.year,p.month,p.payrollType,p.payrollTypeLabel,version,p.gross,p.deductions,p.net,p.sourceHash,p.renderHash,JSON.stringify(summary),JSON.stringify(p.rawReference)]);payrollId=insert.insertId;
+      await this.insertPayrollItems(conn,payrollId,p.items);
       const relative=`companies/${companyId}/payrolls/${p.year}/${String(p.month).padStart(2,'0')}/${payrollId}/original.pdf`;const stored=await this.storage.write(relative,pdf);
       await conn.execute(`INSERT INTO payroll_documents (payroll_id,original_path,original_sha256,created_at,updated_at) VALUES (?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,[payrollId,stored.path,stored.sha256]);
       await conn.execute(`UPDATE payrolls SET status='READY',updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[payrollId,companyId]);
@@ -115,9 +155,36 @@ export class PayrollService{
     }catch(error){await conn.rollback();if(payrollId>0)await this.storage.remove(`companies/${companyId}/payrolls/${p.year}/${String(p.month).padStart(2,'0')}/${payrollId}/original.pdf`);throw error;}finally{conn.release();}
   }
 
+  async archiveCompletedJobRaw(jobId:number,companyId:number):Promise<{archived:number;bytesBefore:number;bytesAfter:number}>{
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT id,source_table sourceTable,batch_number batchNumber,payload_json payload,source_hash sourceHash FROM connector_raw_batches WHERE job_id=? AND company_id=? AND payload_json IS NOT NULL ORDER BY id`,[jobId,companyId]);
+    let archived=0;let bytesBefore=0;let bytesAfter=0;
+    for(const row of rows){
+      const payload=String(row.payload??'');if(!payload)continue;
+      const source=String(row.sourceTable??'batch').replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,60)||'batch';
+      const compressed=await gzipAsync(Buffer.from(payload,'utf8'),{level:6});
+      const relative=`companies/${companyId}/imports/${jobId}/raw/${row.id}-${source}-${Number(row.batchNumber??0)}.json.gz`;
+      const stored=await this.storage.write(relative,compressed);
+      const [updated]=await this.pool.execute<ResultSetHeader>(`UPDATE connector_raw_batches SET archived_path=?,archived_sha256=?,archived_bytes=?,archived_at=UTC_TIMESTAMP(),payload_json=NULL WHERE id=? AND company_id=? AND job_id=? AND payload_json IS NOT NULL`,[stored.path,stored.sha256,compressed.length,row.id,companyId,jobId]);
+      if(updated.affectedRows===1){archived++;bytesBefore+=Buffer.byteLength(payload,'utf8');bytesAfter+=compressed.length;}else await this.storage.remove(relative);
+    }
+    return{archived,bytesBefore,bytesAfter};
+  }
+
   async normalizeClaimedJob(claim:NormalizationClaim,renew:()=>Promise<void>):Promise<NormalizationResult>{
     const job=await this.normalizationJob(claim);const normalized=await this.normalizedInput(job);const result:NormalizationResult={created:0,repaired:0,unchanged:0,skipped:0};
-    for(const payroll of normalized){const outcome=await this.persistNormalizedPayroll(job,payroll);result[outcome]++;await renew();}
+    const companyId=Number(job.companyId);const payrollRunId=job.payrollRunId==null?null:Number(job.payrollRunId);
+    const employees=await this.preloadEmployees(companyId,normalized);const currents=await this.preloadCurrentPayrolls(companyId,employees,normalized);
+    const concurrency=3;
+    for(let start=0;start<normalized.length;start+=concurrency){
+      const chunk=normalized.slice(start,start+concurrency);
+      const outcomes=await Promise.all(chunk.map(async(payroll)=>{
+        let employee=employees.get(String(payroll.sageEmployeeCode))??null;
+        if(!employee)employee=await this.employeeForPayroll(companyId,payroll.sageEmployeeCode,Number(job.id),payrollRunId);
+        const current=employee?currents.get(`${employee.id}|${payroll.year}|${payroll.month}|${payroll.payrollType}`)??null:null;
+        const outcome=await this.persistNormalizedPayroll(job,payroll,employee,current);await renew();return outcome;
+      }));
+      for(const outcome of outcomes)result[outcome]++;
+    }
     return result;
   }
 
@@ -135,16 +202,17 @@ export class PayrollService{
         await conn.commit();
       }catch(error){await conn.rollback();throw error;}finally{conn.release();}
       await this.notifications.notifyAdmins(claim.companyId,{category:'IMPORT_COMPLETED',title:'Importação de holerites concluída',body:`${result.created} novo(s), ${result.repaired} reparado(s), ${result.unchanged} sem alteração e ${result.skipped} ignorado(s).`,url:'/#/payrolls',dedupKey:`import-completed:${jobId}`});
+      try{await this.archiveCompletedJobRaw(jobId,claim.companyId);}catch(error){console.error(`[payroll] falha ao arquivar batches brutos do job ${jobId}`,error);}
       return{created:result.created,unchanged:result.unchanged+result.repaired,skipped:result.skipped};
     }catch(error){await this.pool.execute(`UPDATE import_jobs SET normalization_state='PENDING',normalization_owner=NULL,normalization_lease_until=NULL,normalization_error=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=? AND normalization_owner=?`,[(error instanceof Error?error.message:String(error)).slice(0,1000),jobId,claim.companyId,owner]);throw error;}
   }
 
   async listAdmin(context:UserContext,filters:{employeeId?:number;groupId?:number;year?:number;month?:number;status?:string;type?:number}={}):Promise<Record<string,unknown>[]>{
     const where=['p.company_id=?','p.is_current=1'];const params:Array<number|string>=[context.companyId];if(filters.employeeId){where.push('p.employee_id=?');params.push(filters.employeeId);}if(filters.groupId){where.push('e.group_id=?');params.push(filters.groupId);}if(filters.year){where.push('p.year=?');params.push(filters.year);}if(filters.month){where.push('p.month=?');params.push(filters.month);}if(filters.status){where.push('p.status=?');params.push(filters.status);}if(filters.type){where.push('p.payroll_type=?');params.push(filters.type);}
-    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.employee_id employeeId,e.name employeeName,e.cpf,e.group_id groupId,g.name groupName,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.version,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt,p.created_at createdAt,d.original_sha256 originalSha256,d.signed_sha256 signedSha256 FROM payrolls p JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id JOIN employee_groups g ON g.id=e.group_id AND g.company_id=p.company_id LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE ${where.join(' AND ')} ORDER BY p.year DESC,p.month DESC,e.name ASC,p.payroll_type ASC LIMIT 1000`,params);return rows;
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.document_number documentNumber,p.employee_id employeeId,e.name employeeName,e.cpf,e.group_id groupId,g.name groupName,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.version,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt,p.created_at createdAt,d.original_sha256 originalSha256,d.signed_sha256 signedSha256 FROM payrolls p JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id JOIN employee_groups g ON g.id=e.group_id AND g.company_id=p.company_id LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE ${where.join(' AND ')} ORDER BY p.year DESC,p.month DESC,e.name ASC,p.payroll_type ASC LIMIT 1000`,params);return rows;
   }
 
-  async listEmployee(context:EmployeeContext):Promise<Record<string,unknown>[]>{const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt FROM payrolls p WHERE p.employee_id=? AND p.company_id=? AND p.is_current=1 AND p.status IN ('SIGNATURE_REQUESTED','VIEWED','SIGNED') ORDER BY p.year DESC,p.month DESC,p.payroll_type`,[context.employeeId,context.companyId]);return rows;}
+  async listEmployee(context:EmployeeContext):Promise<Record<string,unknown>[]>{const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.document_number documentNumber,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt FROM payrolls p WHERE p.employee_id=? AND p.company_id=? AND p.is_current=1 AND p.status IN ('SIGNATURE_REQUESTED','VIEWED','SIGNED') ORDER BY p.year DESC,p.month DESC,p.payroll_type`,[context.employeeId,context.companyId]);return rows;}
 
   async detail(context:RequestContext,payrollId:number):Promise<Record<string,unknown>>{
     const params:number[]=[payrollId,context.companyId];let employeeClause='';if(context.kind==='EMPLOYEE'){employeeClause=' AND p.employee_id=? AND p.status IN (\'SIGNATURE_REQUESTED\',\'VIEWED\',\'SIGNED\')';params.push(context.employeeId);}

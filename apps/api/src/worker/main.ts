@@ -15,7 +15,7 @@ import { NotificationOutboxService, type OutboxDispatchResult } from '../service
 import { WorkerHeartbeatService, type WorkerPhase } from '../services/worker-heartbeat.service.js';
 import { startWatchdog } from './watchdog.js';
 
-export type WorkerServices = Pick<PayHubServices, 'payrolls' | 'notifications' | 'runs' | 'connector'>;
+export type WorkerServices = Pick<PayHubServices, 'payrolls' | 'notifications' | 'runs' | 'connector' | 'runEvents'>;
 
 type WorkerState = { phase: WorkerPhase; jobId: number | null };
 export type WorkerDependencies = {
@@ -90,6 +90,14 @@ async function safeNotify(
   catch (error) { console.error(`[worker] falha ao registrar notificação da empresa ${companyId}`, error); }
 }
 
+async function safeRunEvent(
+  services: Pick<WorkerServices, 'runEvents'>,
+  input: Parameters<WorkerServices['runEvents']['append']>[0],
+): Promise<void> {
+  try { await services.runEvents.append(input); }
+  catch (error) { console.error(`[worker] falha ao registrar evento da execução #${input.payrollRunId}`, error); }
+}
+
 async function heartbeatPhase(deps: WorkerDependencies, phase: WorkerPhase, jobId: number | null, cycle: 'START' | 'FINISH' | null = null): Promise<void> {
   deps.state.phase = phase;
   deps.state.jobId = jobId;
@@ -107,6 +115,17 @@ export async function processClaimedJobs(deps: WorkerDependencies): Promise<{ co
     if (!claim) break;
 
     await heartbeatPhase(deps, 'NORMALIZING', claim.jobId);
+    if (claim.payrollRunId) {
+      await safeRunEvent(deps.services, {
+        companyId: claim.companyId,
+        payrollRunId: claim.payrollRunId,
+        eventType: 'NORMALIZATION_STARTED',
+        stage: 'NORMALIZATION',
+        dedupKey: `normalization-started:${claim.jobId}:${claim.attempt}`, 
+        message: `Normalização e geração iniciadas para o job #${claim.jobId}.`,
+        metadata: { jobId: claim.jobId, attempt: claim.attempt },
+      });
+    }
     try {
       const result = await deps.services.payrolls.normalizeClaimedJob(
         claim,
@@ -115,6 +134,22 @@ export async function processClaimedJobs(deps: WorkerDependencies): Promise<{ co
       await deps.queue.complete(claim, result);
       completed.push(claim.jobId);
       console.log(`[worker] job ${claim.jobId} normalizado`, result);
+      if (claim.payrollRunId) {
+        await safeRunEvent(deps.services, {
+          companyId: claim.companyId,
+          payrollRunId: claim.payrollRunId,
+          eventType: result.skipped > 0 ? 'RUN_PARTIAL' : 'RUN_COMPLETED',
+          stage: 'GENERATION',
+          dedupKey: `generation-finished:${claim.jobId}`,
+          level: result.skipped > 0 ? 'WARN' : 'INFO',
+          message: `${result.created} novo(s), ${result.repaired} reparado(s), ${result.unchanged} sem alteração e ${result.skipped} ignorado(s).`,
+          metadata: { jobId: claim.jobId, ...result },
+        });
+      }
+      try{
+        const archive=await deps.services.payrolls.archiveCompletedJobRaw(claim.jobId,claim.companyId);
+        if(archive.archived>0)console.log(`[worker] job ${claim.jobId} raw arquivado`,archive);
+      }catch(archiveError){console.error(`[worker] falha ao arquivar raw do job ${claim.jobId}`,archiveError);}
       await safeNotify(deps.services, claim.companyId, {
         category: 'IMPORT_COMPLETED',
         title: 'Importação de holerites concluída',
@@ -130,6 +165,20 @@ export async function processClaimedJobs(deps: WorkerDependencies): Promise<{ co
         state = await deps.queue.fail(claim, error, deps.env.WORKER_NORMALIZATION_MAX_ATTEMPTS);
       } catch (queueError) {
         console.error(`[worker] não foi possível liberar/finalizar o claim ${claim.jobId}`, queueError);
+      }
+      if (claim.payrollRunId) {
+        await safeRunEvent(deps.services, {
+          companyId: claim.companyId,
+          payrollRunId: claim.payrollRunId,
+          eventType: state === 'FAILED' ? 'NORMALIZATION_FAILED' : 'NORMALIZATION_RETRY',
+          stage: 'NORMALIZATION',
+          dedupKey: `normalization-${state.toLowerCase()}:${claim.jobId}:${claim.attempt}`,
+          level: state === 'FAILED' ? 'ERROR' : 'WARN',
+          message: state === 'FAILED'
+            ? `Geração encerrada após ${claim.attempt} tentativa(s): ${errorText(error)}`
+            : `Tentativa ${claim.attempt} falhou; o job voltará para a fila. ${errorText(error)}`,
+          metadata: { jobId: claim.jobId, attempt: claim.attempt, state },
+        });
       }
       if (state === 'FAILED') {
         await safeNotify(deps.services, claim.companyId, {
@@ -149,39 +198,98 @@ export async function processClaimedJobs(deps: WorkerDependencies): Promise<{ co
 
 export async function scheduleCompanyDue(
   pool: Pick<Pool, 'execute'>,
-  services: Pick<WorkerServices, 'runs'>,
+  services: Pick<WorkerServices, 'runs' | 'runEvents'>,
   now = new Date(),
+  owner = 'payhub-worker',
 ): Promise<Array<{ companyId: number; groupId: number; scheduleId: number; runId?: number; jobId?: number; failed?: boolean }>> {
   const p = brasiliaParts(now);
-  if (p.weekday > 5) return [];
   const time = brTimeKey(now);
   const date = brDateKey(now);
+  const weekdayBit = 1 << (p.weekday - 1);
   const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT s.id scheduleId,s.group_id groupId,g.company_id companyId
+    `SELECT s.id scheduleId,s.group_id groupId,g.company_id companyId,
+            TIME_FORMAT(s.run_time,'%H:%i:00') scheduledTime
        FROM group_schedules s
        JOIN employee_groups g ON g.id=s.group_id
+       LEFT JOIN schedule_executions x
+         ON x.company_id=g.company_id AND x.schedule_id=s.id AND x.run_date=?
       WHERE s.enabled=1 AND g.auto_search_enabled=1 AND g.status='ACTIVE'
-        AND TIME_FORMAT(s.run_time,'%H:%i:00')=?`,
-    [time],
+        AND (s.weekdays_mask & ?)<>0
+        AND TIME_FORMAT(s.run_time,'%H:%i:00')<=?
+        AND (
+          x.id IS NULL
+          OR (
+            x.payroll_run_id IS NULL
+            AND (
+              x.status='PENDING'
+              OR (x.status='FAILED' AND x.attempt_count<3)
+              OR (x.status='CLAIMED' AND x.claim_lease_until<UTC_TIMESTAMP())
+            )
+          )
+        )
+      ORDER BY s.run_time ASC,s.id ASC
+      LIMIT 1000`,
+    [date, weekdayBit, time],
   );
   const results: Array<{ companyId: number; groupId: number; scheduleId: number; runId?: number; jobId?: number; failed?: boolean }> = [];
   for (const row of rows) {
     const companyId = Number(row.companyId);
     const groupId = Number(row.groupId);
     const scheduleId = Number(row.scheduleId);
+    const scheduledTime = String(row.scheduledTime);
+    await pool.execute(
+      `INSERT IGNORE INTO schedule_executions
+        (company_id,schedule_id,group_id,run_date,run_time,payroll_run_id,status,attempt_count,claim_owner,claimed_at,claim_lease_until,error_message,created_at,updated_at)
+       VALUES (?,?,?,?,?,NULL,'PENDING',0,NULL,NULL,NULL,NULL,UTC_TIMESTAMP(),UTC_TIMESTAMP())`,
+      [companyId, scheduleId, groupId, date, scheduledTime],
+    );
+    const [claim] = await pool.execute<ResultSetHeader>(
+      `UPDATE schedule_executions
+          SET status='CLAIMED',attempt_count=attempt_count+1,claim_owner=?,claimed_at=UTC_TIMESTAMP(),
+              claim_lease_until=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE),error_message=NULL,updated_at=UTC_TIMESTAMP()
+        WHERE company_id=? AND schedule_id=? AND run_date=? AND payroll_run_id IS NULL
+          AND (
+            status='PENDING'
+            OR (status='FAILED' AND attempt_count<3)
+            OR (status='CLAIMED' AND claim_lease_until<UTC_TIMESTAMP())
+          )`,
+      [owner.slice(0, 100), companyId, scheduleId, date],
+    );
+    if (claim.affectedRows === 0) continue;
+    const [executionRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id,attempt_count attemptCount FROM schedule_executions
+        WHERE company_id=? AND schedule_id=? AND run_date=? LIMIT 1`,
+      [companyId, scheduleId, date],
+    );
+    const execution = executionRows[0];
+    if (!execution) continue;
+    const executionId = Number(execution.id);
     try {
-      const [insert] = await pool.execute<ResultSetHeader>(
-        `INSERT IGNORE INTO schedule_executions (company_id,schedule_id,group_id,run_date,run_time,payroll_run_id,created_at)
-         VALUES (?,?,?,?,?,NULL,UTC_TIMESTAMP())`,
-        [companyId, scheduleId, groupId, date, time],
-      );
-      if (insert.affectedRows === 0) continue;
       const workerContext: UserContext = { kind: 'USER', companyId, userId: 0, role: 'MASTER' };
-      const started = await services.runs.startGroup(workerContext, groupId, { ipAddress: null, userAgent: 'payhub-worker' }, 'SCHEDULED');
-      await pool.execute(`UPDATE schedule_executions SET payroll_run_id=? WHERE id=? AND company_id=?`, [started.runId, insert.insertId, companyId]);
+      const started = await services.runs.startGroup(
+        workerContext,
+        groupId,
+        { ipAddress: null, userAgent: 'payhub-worker' },
+        'SCHEDULED',
+        undefined,
+        { scheduleExecutionId: executionId, scheduleId, scheduledTime },
+      );
+      await pool.execute(
+        `UPDATE schedule_executions
+            SET payroll_run_id=?,status='ENQUEUED',claim_owner=NULL,claim_lease_until=NULL,error_message=NULL,updated_at=UTC_TIMESTAMP()
+          WHERE id=? AND company_id=?`,
+        [started.runId, executionId, companyId],
+      );
       results.push({ companyId, groupId, scheduleId, runId: started.runId, jobId: started.jobId });
-      console.log(`[worker] empresa ${companyId} agenda ${scheduleId}: run ${started.runId}, job ${started.jobId}`);
+      console.log(`[worker] empresa ${companyId} agenda ${scheduleId} (${scheduledTime}) recuperada/enfileirada: run ${started.runId}, job ${started.jobId}`);
     } catch (error) {
+      const message = errorText(error);
+      await pool.execute(
+        `UPDATE schedule_executions
+            SET status='FAILED',claim_owner=NULL,claim_lease_until=NULL,error_message=?,updated_at=UTC_TIMESTAMP()
+          WHERE id=? AND company_id=?`,
+        [message, executionId, companyId],
+      );
       results.push({ companyId, groupId, scheduleId, failed: true });
       console.error(`[worker] empresa ${companyId} agenda ${scheduleId} falhou`, error);
     }
@@ -238,11 +346,11 @@ export async function notifyCompanyOperationalAlerts(
 }
 
 async function durableWorkerCycle(deps: WorkerDependencies, now = new Date()): Promise<WorkerCycleResult> {
-  await heartbeatPhase(deps, 'CLAIMING', null, 'START');
-  const normalized = await processClaimedJobs(deps);
+  await heartbeatPhase(deps, 'SCHEDULING', null, 'START');
+  const scheduled = await scheduleCompanyDue(deps.pool, deps.services, now, deps.instanceId);
 
-  await heartbeatPhase(deps, 'SCHEDULING', null);
-  const scheduled = await scheduleCompanyDue(deps.pool, deps.services, now);
+  await heartbeatPhase(deps, 'CLAIMING', null);
+  const normalized = await processClaimedJobs(deps);
 
   await heartbeatPhase(deps, 'NOTIFYING', null);
   await notifyCompanyOperationalAlerts(deps.pool, deps.services, deps.env.CONNECTOR_OFFLINE_SECONDS, now);
@@ -319,8 +427,16 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => { stopping = true; });
   console.log(`PayHub Worker iniciado (${instanceId}).`);
 
+  let heartbeatBusy=false;
+  const heartbeatEveryMs=Math.max(5000,Math.min(15000,Math.trunc(env.WORKER_POLL_SECONDS*500)));
+  let heartbeatTimer:NodeJS.Timeout|null=null;
   try {
     await heartbeat.update(instanceId, 'STARTING', 'IDLE', null, null, null);
+    heartbeatTimer=setInterval(()=>{
+      if(heartbeatBusy)return;heartbeatBusy=true;
+      void heartbeat.touch(instanceId,state.phase,state.jobId).catch((error)=>console.error('[worker] heartbeat periódico falhou',error)).finally(()=>{heartbeatBusy=false;});
+    },heartbeatEveryMs);
+    heartbeatTimer.unref();
     while (!stopping) {
       const started = Date.now();
       const watchdog = startWatchdog({
@@ -344,10 +460,11 @@ async function main(): Promise<void> {
       if (!stopping) await new Promise((resolve) => setTimeout(resolve, wait));
     }
   } finally {
+    if(heartbeatTimer)clearInterval(heartbeatTimer);
     try { await heartbeat.update(instanceId, 'STOPPING', 'IDLE', null, null, null); } catch {}
     await pool.end();
   }
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]).toLowerCase() : '';
-if (invokedPath === fileURLToPath(import.meta.url).toLowerCase()) await main();
+if (invokedPath === fileURLToPath(import.meta.url).toLowerCase() || process.env.pm_exec_path?.toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) await main();

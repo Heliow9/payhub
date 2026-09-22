@@ -1,7 +1,7 @@
 {
   "name": "payhub",
   "private": true,
-  "version": "0.5.3",
+  "version": "0.6.1",
   "workspaces": [
     "apps/*"
   ],
@@ -12,7 +12,8 @@
     "db:migrate": "npm run db:migrate --workspace @payhub/api",
     "bootstrap:master": "npm run bootstrap:master --workspace @payhub/api",
     "start:api": "npm run start --workspace @payhub/api",
-    "start:worker": "npm run start:worker --workspace @payhub/api"
+    "start:worker": "npm run start:worker --workspace @payhub/api",
+    "verify:group-scheduling": "npm run verify:group-scheduling --workspace @payhub/api"
   },
   "engines": {
     "node": ">=22.13.0"

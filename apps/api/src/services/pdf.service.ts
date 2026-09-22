@@ -36,6 +36,8 @@ export interface PdfPayrollInput{
   items:Array<{code:string;description:string;reference?:string|null;amount:number;nature:string}>;
   footer?:string[];
   signatureInfo?:{signedAt:string;acceptanceText:string};
+  documentNumber?:string;
+  verificationUrl?:string;
 }
 
 export interface EvidenceReceiptPdfInput{
@@ -57,6 +59,8 @@ export interface EvidenceReceiptPdfInput{
   evidenceHash:string;
   hmacSeal:string;
   tsaStatus:string;
+  documentNumber?:string;
+  verificationUrl?:string;
 }
 
 type PdfObject=Buffer;
@@ -80,7 +84,7 @@ function drawReceipt(input:PdfPayrollInput,y0:number):string[]{
   const headerBottom=top-60;const empBottom=headerBottom-44;const tableHeadBottom=empBottom-15;const basesTop=y0+34;const totalsTop=y0+90;const bodyBottom=totalsTop;
   c.push(rect(x0,y0,right-x0,h));c.push(line(signatureLeft,y0,signatureLeft,top));
   c.push(text(x0+4,top-11,companyName,8,true),text(x0+4,top-22,companyAddress,7),text(x0+4,top-33,companyDocument,7),text(x0+4,top-44,`${companyName} / ${companyAddress.replace(', ',',')}`,7));
-  c.push(textRight(mainRight-8,top-12,'Recibo de Pagamento de Salário',10,true),textRight(mainRight-8,top-27,`Mês: ${monthLabel(input.competence)}`,8));
+  c.push(textRight(mainRight-8,top-12,'Recibo de Pagamento de Salário',10,true),textRight(mainRight-8,top-27,`Mês: ${monthLabel(input.competence)}`,8));if(input.documentNumber)c.push(textRight(mainRight-8,top-42,`Documento: ${input.documentNumber}`,5.8,true));
   c.push(line(x0,headerBottom,mainRight,headerBottom));
   c.push(text(x0+15,headerBottom-9,'Código',5.5),text(x0+15,headerBottom-20,eventCode(input.sageCode),7));
   c.push(text(x0+54,headerBottom-9,'Nome do Funcionário',5.5),text(x0+54,headerBottom-20,fit(employee,50),7),text(x0+54,headerBottom-33,fit(jobTitle,45),7));
@@ -108,9 +112,11 @@ function drawReceipt(input:PdfPayrollInput,y0:number):string[]{
   for(let i=0;i<6;i++){const bx=x0+i*baseW;c.push(textCenter(bx,y0+21,baseW,baseLabels[i]!,5.0),textCenter(bx,y0+8,baseW,numberBr(baseValues[i]),7.2));}
   if(input.signatureInfo){
     const sideLength=h-18;
-    c.push(rotatedFitText(signatureLeft+10,y0+9,sideLength,'DECLARO TER RECEBIDO A IMPORTÂNCIA LÍQUIDA DISCRIMINADA NESTE RECIBO',4.6,true));
-    c.push(rotatedFitText(signatureLeft+22,y0+9,sideLength,`Assinado eletronicamente em ${input.signatureInfo.signedAt}.`,4.2,true));
-    c.push(rotatedFitText(signatureLeft+34,y0+9,sideLength,input.signatureInfo.acceptanceText,3.6,false));
+    c.push(rotatedFitText(signatureLeft+8,y0+9,sideLength,'DECLARO TER RECEBIDO A IMPORTÂNCIA LÍQUIDA DISCRIMINADA NESTE RECIBO',4.4,true));
+    c.push(rotatedFitText(signatureLeft+18,y0+9,sideLength,`Assinado eletronicamente em ${input.signatureInfo.signedAt}.`,4.0,true));
+    c.push(rotatedFitText(signatureLeft+29,y0+9,sideLength,input.signatureInfo.acceptanceText,3.35,false));
+    if(input.documentNumber)c.push(rotatedFitText(signatureLeft+40,y0+9,sideLength,`Código de verificação: ${input.documentNumber}`,3.7,true));
+    if(input.verificationUrl)c.push(rotatedFitText(signatureLeft+48,y0+9,sideLength,`Valide em: ${input.verificationUrl}`,3.0,false));
   }else{
     c.push(rotatedText(signatureLeft+15,y0+20,'DECLARO TER RECEBIDO A IMPORTÂNCIA LÍQUIDA DISCRIMINADA NESTE RECIBO',5.4));
     c.push(line(signatureLeft+31,y0+96,right-6,y0+96),rotatedText(signatureLeft+42,y0+105,'ASSINATURA DO FUNCIONÁRIO',6.2,true));
@@ -192,6 +198,7 @@ export function buildEvidenceReceiptPdf(input:EvidenceReceiptPdfInput):Buffer{
 
   let y=734;
   commands.push(fillRect(38,y-8,519,16,0.94));commands.push(text(48,y-3,'1. Identificação da assinatura',9.6,true));y-=24;
+  if(input.documentNumber)y=field(commands,'Código de verificação',input.documentNumber,y,{valueSize:10.2,maxChars:60});
   y=field(commands,'Funcionário',input.employeeName,y,{valueSize:11,maxChars:72});
   y=field(commands,'CPF',input.cpfMasked,y,{valueSize:9.5,maxChars:40});
   y=field(commands,'Competência',input.competence,y,{x:48,valueSize:9.5,maxChars:30});
@@ -216,6 +223,7 @@ export function buildEvidenceReceiptPdf(input:EvidenceReceiptPdfInput):Buffer{
   y=hashField(commands,'Hash da evidência',input.evidenceHash,y);
   y=hashField(commands,'Selo HMAC da evidência',input.hmacSeal,y);
   y=field(commands,'Carimbo de tempo externo',input.tsaStatus,y,{valueSize:9.2,maxChars:80});
+  if(input.verificationUrl)y=field(commands,'Consulta pública',input.verificationUrl,y,{valueSize:8.8,maxChars:84});
 
   const footerY=Math.max(52,y-4);
   commands.push(line(38,footerY+16,557,footerY+16,0.8));
