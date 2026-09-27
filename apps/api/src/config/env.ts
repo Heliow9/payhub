@@ -33,6 +33,8 @@ const schema = z.object({
   VAPID_SUBJECT: z.string().optional().default(''),
   VAPID_PUBLIC_KEY: z.string().optional().default(''),
   VAPID_PRIVATE_KEY: z.string().optional().default(''),
+  PONTO_CERTO_BRIDGE_CLIENT_ID: z.string().default('ponto-certo'),
+  PONTO_CERTO_BRIDGE_SECRET: z.string().min(16).optional().default(''),
   REVERSE_GEOCODING_ENABLED: boolishDefault(true),
   REVERSE_GEOCODING_URL: z.string().url().default('https://nominatim.openstreetmap.org/reverse')
 });
