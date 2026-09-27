@@ -58,11 +58,13 @@ export function GroupsPage() {
   const [automationFilter,setAutomationFilter]=useState('');
   const [page,setPage]=useState(1);
   const [pageSize,setPageSize]=useState(12);
+  const [enabledPayrollTypes,setEnabledPayrollTypes]=useState<number[]>([2,3,4,6]);
 
   async function load() {
     try {
-      const response = await api.groups();
+      const [response, policy] = await Promise.all([api.groups(),api.payrollTypePolicy().catch(() => ({ enabledPayrollTypes: [2,3,4,6] }))]);
       setGroups(response.groups);
+      setEnabledPayrollTypes(policy.enabledPayrollTypes ?? [2,3,4,6]);
       setError('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Falha ao carregar grupos.');
@@ -102,7 +104,7 @@ export function GroupsPage() {
         return <article className="group-card" key={group.id}>
           <header><div><span className="eyebrow">GRUPO</span><h3>{group.name}</h3></div><StatusBadge status={group.status}/></header>
           <div className="group-kpis"><div><strong>{group.employeeCount}</strong><span>funcionários</span></div><div><strong>{principal?.companyName ?? '—'}</strong><span>empresa</span></div><div><strong>{group.schedules?.length ?? 0}</strong><span>horários</span></div></div>
-          <div className="group-section"><span className="label">Tipos de folha</span><div className="chip-list">{(group.payrollTypes ?? []).map((type: number) => <span className="chip" key={type}>{typeOptions.find((option) => option.value === type)?.label ?? type}</span>)}</div></div>
+          <div className="group-section"><span className="label">Tipos de folha</span><div className="chip-list">{(group.payrollTypes ?? []).map((type: number) => <span className={`chip ${enabledPayrollTypes.includes(type)?'':'muted'}`} key={type}>{typeOptions.find((option) => option.value === type)?.label ?? type}{!enabledPayrollTypes.includes(type)?' · inativo':''}</span>)}</div></div>
           <div className="group-section"><span className="label">Busca automática · {weekdaySummary(group.weekdays)}</span><div className="schedule-list">{group.schedules?.map((schedule: any) => <span key={schedule.id}>◷ {schedule.runTime}</span>)}</div></div>
           <div className="group-run-summary"><div><span className="label">Última execução</span>{last ? <><div className="group-run-line"><strong>#{last.runId} · {formatDateTime(last.createdAt)}</strong><StatusBadge status={last.status}/></div><small>{last.successCount ?? 0}/{last.employeeCount ?? 0} processados · {last.failureCount ?? 0} falhas · {formatDuration(last.durationSeconds)}</small></> : <small>Nenhuma execução registrada.</small>}</div><div><span className="label">Próxima execução</span><strong>{group.autoSearchEnabled ? formatDateTime(group.nextRunAt) : 'Automação desativada'}</strong><small>{group.autoSearchEnabled ? 'Competência atual · agenda durável' : 'Ative a busca automática para executar os horários.'}</small></div></div>
           {group.lastScheduleAttempt?.status === 'FAILED' && !group.lastScheduleAttempt?.payrollRunId && <div className="warning-note compact-note"><strong>Última agenda não conseguiu enfileirar a busca.</strong><span>{group.lastScheduleAttempt.errorMessage ?? 'O worker tentará novamente até o limite configurado.'}</span></div>}
@@ -112,16 +114,16 @@ export function GroupsPage() {
     </div>
     {filtered.length === 0 && <div className="empty-state panel">Nenhum grupo encontrado para os filtros.</div>}
     <Pagination page={page} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={setPageSize} pageSizes={[6,12,24,48]} label="grupos"/>
-    {editing && <GroupModal group={editing.new ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }}/>} 
-    {searching && <PayrollSearchModal title={`Buscar holerites · ${searching.name}`} subtitle="Os tipos vêm pré-selecionados conforme o grupo, mas podem ser alterados somente para esta execução manual." defaultTypes={searching.payrollTypes ?? [2]} onClose={() => setSearching(null)} onSubmit={(input) => force(searching, input)}/>} 
+    {editing && <GroupModal group={editing.new ? null : editing} enabledPayrollTypes={enabledPayrollTypes} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }}/>} 
+    {searching && <PayrollSearchModal title={`Buscar holerites · ${searching.name}`} subtitle="Os tipos vêm pré-selecionados conforme o grupo, mas podem ser alterados somente para esta execução manual." defaultTypes={searching.payrollTypes ?? [2]} enabledTypes={enabledPayrollTypes} onClose={() => setSearching(null)} onSubmit={(input) => force(searching, input)}/>} 
     {timelineGroup && <RunTimelineModal group={timelineGroup} onClose={() => setTimelineGroup(null)}/>} 
   </section>;
 }
 
-function GroupModal({ group, onClose, onSaved }: { group: any | null; onClose(): void; onSaved(): Promise<void> }) {
+function GroupModal({ group, enabledPayrollTypes, onClose, onSaved }: { group: any | null; enabledPayrollTypes: number[]; onClose(): void; onSaved(): Promise<void> }) {
   const { principal } = useAuth();
   const [name, setName] = useState(group?.name ?? '');
-  const [types, setTypes] = useState<number[]>(group?.payrollTypes ?? [2]);
+  const [types, setTypes] = useState<number[]>(group?.payrollTypes ?? (enabledPayrollTypes[0] ? [enabledPayrollTypes[0]] : []));
   const [times, setTimes] = useState<string[]>(group?.schedules?.length ? group.schedules.map((schedule: any) => schedule.runTime) : ['08:00']);
   const [weekdays, setWeekdays] = useState<number[]>(group?.weekdays?.length ? group.weekdays : [1, 2, 3, 4, 5]);
   const [auto, setAuto] = useState(group ? Boolean(group.autoSearchEnabled) : true);
@@ -157,7 +159,7 @@ function GroupModal({ group, onClose, onSaved }: { group: any | null; onClose():
 
     <div className="form-section">
       <span className="label strong">Tipos de folha consultados</span>
-      <div className="check-grid">{typeOptions.map((option) => <label className="check-card" key={option.value}><input type="checkbox" checked={types.includes(option.value)} onChange={() => toggleType(option.value)}/><span>{option.label}</span></label>)}</div>
+      <div className="check-grid">{typeOptions.map((option) => {const enabled=enabledPayrollTypes.includes(option.value);return <label className={`check-card ${enabled?'':'muted'}`} key={option.value}><input type="checkbox" disabled={!enabled} checked={types.includes(option.value)} onChange={() => toggleType(option.value)}/><span>{option.label}{!enabled&&<small>Desativado pelo MASTER da empresa</small>}</span></label>;})}</div>
     </div>
 
     <div className="form-section">

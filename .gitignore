@@ -16,3 +16,6 @@ apps/mobile/android/
 apps/mobile/ios/
 apps/mobile/.claude/
 apps/mobile/.vscode/
+*.bak
+.env.recovered
+.env.backup-*

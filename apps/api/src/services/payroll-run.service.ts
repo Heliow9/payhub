@@ -24,6 +24,16 @@ function sanitizeTypes(types: number[]): number[] {
   return [...new Set(types.map(Number))].filter((value) => ALLOWED_PAYROLL_TYPES.includes(value as (typeof ALLOWED_PAYROLL_TYPES)[number]));
 }
 
+function parseEnabledPayrollTypes(raw: unknown): number[] {
+  if (raw == null || String(raw).trim() === '') return [...ALLOWED_PAYROLL_TYPES];
+  try {
+    const parsed = JSON.parse(String(raw));
+    return Array.isArray(parsed) ? sanitizeTypes(parsed.map(Number)) : [...ALLOWED_PAYROLL_TYPES];
+  } catch {
+    return [...ALLOWED_PAYROLL_TYPES];
+  }
+}
+
 export class PayrollRunService {
   constructor(
     private pool: Pool,
@@ -31,6 +41,14 @@ export class PayrollRunService {
     private audit: AuditService,
     private runEvents?: PayrollRunEventService,
   ) {}
+
+  private async enabledPayrollTypes(companyId: number): Promise<number[]> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT enabled_payroll_types_json enabledPayrollTypesJson FROM app_settings WHERE company_id=? LIMIT 1`,
+      [companyId],
+    );
+    return rows[0] ? parseEnabledPayrollTypes(rows[0].enabledPayrollTypesJson) : [...ALLOWED_PAYROLL_TYPES];
+  }
 
   private async safeRunEvent(input: Parameters<PayrollRunEventService['append']>[0]): Promise<void> {
     if (!this.runEvents) return;
@@ -72,20 +90,26 @@ export class PayrollRunService {
     if (!group || group.status !== 'ACTIVE') throw notFound('Grupo não encontrado ou inativo.');
 
     const configuredTypes = sanitizeTypes(JSON.parse(String(group.types)) as number[]);
+    const enabledTypes = await this.enabledPayrollTypes(context.companyId);
+    const enabledSet = new Set(enabledTypes);
     if (source === 'SCHEDULED' && !scheduled) throw badRequest('Contexto da agenda automática ausente.');
     let year: number;
     let month: number;
     let types: number[];
+    let requestedTypes: number[];
 
     if (source === 'SCHEDULED') {
       ({ year, month } = currentCompetency());
-      types = configuredTypes;
+      requestedTypes = configuredTypes;
+      types = configuredTypes.filter((value) => enabledSet.has(value));
     } else {
       if (!manual) throw badRequest('Informe competência, ano e tipo(s) para a busca manual.');
       ({ year, month } = normalizeManualCompetency(manual));
-      types = sanitizeTypes(manual.types);
+      requestedTypes = sanitizeTypes(manual.types);
+      types = requestedTypes.filter((value) => enabledSet.has(value));
     }
-    if (types.length === 0) throw badRequest('Selecione pelo menos um tipo de folha.');
+    if (types.length === 0) throw badRequest(enabledTypes.length === 0 ? 'A geração de holerites está suspensa pelo MASTER da empresa.' : 'Os tipos de holerite selecionados estão desativados nas configurações da empresa.','PAYROLL_TYPE_DISABLED');
+    const disabledTypes = requestedTypes.filter((value) => !enabledSet.has(value));
 
     const [employees] = await this.pool.execute<RowDataPacket[]>(
       `SELECT id,sage_employee_code code FROM employees WHERE group_id=? AND company_id=? AND status='ACTIVE' ORDER BY id`,
@@ -204,8 +228,12 @@ export class PayrollRunService {
     if (!employee || employee.status !== 'ACTIVE') throw notFound('Funcionário não encontrado ou inativo.');
 
     const { year, month } = normalizeManualCompetency(manual);
-    const types = sanitizeTypes(manual.types);
-    if (types.length === 0) throw badRequest('Selecione pelo menos um tipo de folha.');
+    const enabledTypes = await this.enabledPayrollTypes(context.companyId);
+    const enabledSet = new Set(enabledTypes);
+    const requestedTypes = sanitizeTypes(manual.types);
+    const types = requestedTypes.filter((value) => enabledSet.has(value));
+    if (types.length === 0) throw badRequest(enabledTypes.length === 0 ? 'A geração de holerites está suspensa pelo MASTER da empresa.' : 'Os tipos de holerite selecionados estão desativados nas configurações da empresa.','PAYROLL_TYPE_DISABLED');
+    const disabledTypes = requestedTypes.filter((value) => !enabledSet.has(value));
 
     const [run] = await this.pool.execute<ResultSetHeader>(
       `INSERT INTO payroll_runs
@@ -229,7 +257,7 @@ export class PayrollRunService {
       stage: 'QUEUE',
       message: `Busca individual enfileirada para ${employee.name}.`,
       dedupKey: 'run-enqueued',
-      metadata: { employeeId, jobId, year, month, types },
+      metadata: { employeeId, jobId, year, month, types, requestedTypes, disabledTypes },
     });
 
     await this.audit.record({
@@ -239,7 +267,7 @@ export class PayrollRunService {
       targetType: 'PAYROLL_RUN',
       targetId: run.insertId,
       meta,
-      metadata: { employeeId, jobId, year, month, types },
+      metadata: { employeeId, jobId, year, month, types, requestedTypes, disabledTypes },
     });
 
     return { runId: run.insertId, jobId };
