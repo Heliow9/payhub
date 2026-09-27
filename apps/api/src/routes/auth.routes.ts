@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { Env } from '../config/env.js';
-import { normalizeCpf } from '../core/security.js';
+import { normalizeCpf, sha256 } from '../core/security.js';
 import { requestMeta } from '../core/request.js';
 import type { AuthService, LoginOutcome } from '../services/auth.service.js';
 import { csrf, requireAuth, requireEmployee } from '../middleware/auth.js';
@@ -36,7 +36,13 @@ export function authRoutes(auth: AuthService, env: Env) {
   const firstAccessLimiter = loginLimiter(Math.max(5, Math.floor(env.LOGIN_RATE_LIMIT / 2)));
   const sendLogin = (res: any, result: LoginOutcome, client: 'WEB' | 'MOBILE') => {
     if ('requiresCompanySelection' in result) return res.json(result);
-    if (client === 'WEB') res.cookie('payhub_session', result.token, { httpOnly: true, secure: env.COOKIE_SECURE, sameSite: 'lax', path: '/', expires: result.expiresAt });
+    if (client === 'WEB') {
+
+      res.cookie('payhub_session', result.token, { httpOnly: true, secure: env.COOKIE_SECURE, sameSite: 'lax', path: '/', expires: result.expiresAt });
+
+      res.cookie('payhub_csrf', result.csrfToken, { httpOnly: false, secure: env.COOKIE_SECURE, sameSite: 'lax', path: '/', expires: result.expiresAt });
+
+    }
     return res.json({ principal: result.principal, csrfToken: result.csrfToken, ...(client === 'MOBILE' ? { accessToken: result.token, expiresAt: result.expiresAt.toISOString() } : {}) });
   };
 
