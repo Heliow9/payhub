@@ -9,10 +9,34 @@ export type AuthOutcome=AuthSession|CompanySelectionOutcome;
 export class ApiError extends Error{constructor(message:string,public status:number,public code?:string,public details?:unknown){super(message);}}
 let csrfToken=sessionStorage.getItem('payhub_csrf')??'';
 export function setCsrfToken(value:string){csrfToken=value;if(value)sessionStorage.setItem('payhub_csrf',value);else sessionStorage.removeItem('payhub_csrf');}
-async function request<T>(path:string,options:RequestInit={}):Promise<T>{const headers=new Headers(options.headers);if(options.body&&!headers.has('content-type'))headers.set('content-type','application/json');if(options.method&&options.method!=='GET'&&options.method!=='HEAD'&&csrfToken)headers.set('x-csrf-token',csrfToken);const response=await fetch(path,{...options,headers,credentials:'include'});if(response.status===204)return undefined as T;const contentType=response.headers.get('content-type')??'';if(!response.ok){let payload:any={};if(contentType.includes('application/json'))payload=await response.json().catch(()=>({}));throw new ApiError(payload.error??`Erro HTTP ${response.status}`,response.status,payload.code,payload.details);}return contentType.includes('application/json')?response.json():response.text() as T;}
+
+
+function csrfFromCookie():string{
+
+  const item=document.cookie
+
+    .split('; ')
+
+    .find((value)=>value.startsWith('payhub_csrf='));
+
+  return item ? decodeURIComponent(item.slice('payhub_csrf='.length)) : '';
+
+}
+
+
+
+function currentCsrfToken():string{
+
+  return csrfFromCookie() || csrfToken;
+
+}
+
+
+
+async function request<T>(path:string,options:RequestInit={}):Promise<T>{const headers=new Headers(options.headers);if(options.body&&!headers.has('content-type'))headers.set('content-type','application/json');const csrf=currentCsrfToken();if(options.method&&options.method!=='GET'&&options.method!=='HEAD'&&csrf)headers.set('x-csrf-token',csrf);const response=await fetch(path,{...options,headers,credentials:'include'});if(response.status===204)return undefined as T;const contentType=response.headers.get('content-type')??'';if(!response.ok){let payload:any={};if(contentType.includes('application/json'))payload=await response.json().catch(()=>({}));throw new ApiError(payload.error??`Erro HTTP ${response.status}`,response.status,payload.code,payload.details);}return contentType.includes('application/json')?response.json():response.text() as T;}
 const json=(value:unknown)=>JSON.stringify(value);
 
-async function requestDownload(path:string,options:RequestInit={},fallbackFilename='payhub-download.bin'):Promise<{blob:Blob;filename:string}>{const headers=new Headers(options.headers);if(options.body&&!headers.has('content-type'))headers.set('content-type','application/json');if(options.method&&options.method!=='GET'&&options.method!=='HEAD'&&csrfToken)headers.set('x-csrf-token',csrfToken);const response=await fetch(path,{...options,headers,credentials:'include'});if(!response.ok){const contentType=response.headers.get('content-type')??'';let payload:any={};if(contentType.includes('application/json'))payload=await response.json().catch(()=>({}));throw new ApiError(payload.error??`Erro HTTP ${response.status}`,response.status,payload.code,payload.details);}const disposition=response.headers.get('content-disposition')??'';const match=/filename="?([^";]+)"?/i.exec(disposition);return{blob:await response.blob(),filename:match?.[1]??fallbackFilename};}
+async function requestDownload(path:string,options:RequestInit={},fallbackFilename='payhub-download.bin'):Promise<{blob:Blob;filename:string}>{const headers=new Headers(options.headers);if(options.body&&!headers.has('content-type'))headers.set('content-type','application/json');const csrf=currentCsrfToken();if(options.method&&options.method!=='GET'&&options.method!=='HEAD'&&csrf)headers.set('x-csrf-token',csrf);const response=await fetch(path,{...options,headers,credentials:'include'});if(!response.ok){const contentType=response.headers.get('content-type')??'';let payload:any={};if(contentType.includes('application/json'))payload=await response.json().catch(()=>({}));throw new ApiError(payload.error??`Erro HTTP ${response.status}`,response.status,payload.code,payload.details);}const disposition=response.headers.get('content-disposition')??'';const match=/filename="?([^";]+)"?/i.exec(disposition);return{blob:await response.blob(),filename:match?.[1]??fallbackFilename};}
 
 export const api={
   me:()=>request<{principal:Principal|null;csrfToken:string}>('/api/auth/me'),
