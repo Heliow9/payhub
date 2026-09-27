@@ -11,7 +11,7 @@ const manualSearchSchema=z.object({year:z.number().int().min(2000).max(2100),mon
 export function employeesRoutes(service:EmployeeService,runs:PayrollRunService){const r=Router();const context=(req:any)=>contextFromPrincipal(req.principal!);
   r.get('/me/profile',requireEmployee,async(req,res,next)=>{try{res.json({employee:await service.selfProfile(context(req) as any)});}catch(e){next(e);}});
   r.use(requireUser);
-  r.get('/',async(req,res,next)=>{try{res.json({employees:await service.list(context(req) as any,String(req.query.search??''))});}catch(e){next(e);}});
+  r.get('/',async(req,res,next)=>{try{res.json(await service.list(context(req) as any,{search:req.query.search?String(req.query.search):undefined,groupId:req.query.groupId?Number(req.query.groupId):undefined,status:req.query.status?String(req.query.status):undefined,access:req.query.access?String(req.query.access):undefined,sageStatus:req.query.sageStatus?String(req.query.sageStatus):undefined,page:req.query.page?Number(req.query.page):1,pageSize:req.query.pageSize?Number(req.query.pageSize):25}));}catch(e){next(e);}});
   r.post('/lookup',csrf,async(req,res,next)=>{try{const{cpf}=z.object({cpf:z.string()}).parse(req.body);const jobId=await service.startLookup(context(req) as any,cpf,requestMeta(req));res.status(202).json({jobId});}catch(e){next(e);}});
   r.get('/lookup/:jobId/result',async(req,res,next)=>{try{res.json(await service.lookupResult(context(req) as any,Number(req.params.jobId)));}catch(e){next(e);}});
   r.get('/:id',async(req,res,next)=>{try{res.json({employee:await service.detail(context(req) as any,Number(req.params.id))});}catch(e){next(e);}});

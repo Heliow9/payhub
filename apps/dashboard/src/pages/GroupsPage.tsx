@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthProvider';
 import { Modal } from '../components/Modal';
+import { Pagination } from '../components/Pagination';
 import { StatusBadge } from '../components/StatusBadge';
 import { PayrollSearchModal, type PayrollSearchInput } from '../components/PayrollSearchModal';
 
@@ -52,6 +53,11 @@ export function GroupsPage() {
   const [searching, setSearching] = useState<any | null>(null);
   const [timelineGroup, setTimelineGroup] = useState<any | null>(null);
   const [error, setError] = useState('');
+  const [query,setQuery]=useState('');
+  const [statusFilter,setStatusFilter]=useState('');
+  const [automationFilter,setAutomationFilter]=useState('');
+  const [page,setPage]=useState(1);
+  const [pageSize,setPageSize]=useState(12);
 
   async function load() {
     try {
@@ -62,8 +68,18 @@ export function GroupsPage() {
       setError(cause instanceof Error ? cause.message : 'Falha ao carregar grupos.');
     }
   }
-
   useEffect(() => { void load(); }, []);
+
+  const filtered=useMemo(()=>groups.filter((group)=>{
+    const matchesQuery=!query.trim()||String(group.name??'').toLocaleLowerCase('pt-BR').includes(query.trim().toLocaleLowerCase('pt-BR'));
+    const matchesStatus=!statusFilter||String(group.status)===statusFilter;
+    const matchesAutomation=!automationFilter||(automationFilter==='ON'?Boolean(group.autoSearchEnabled):!group.autoSearchEnabled);
+    return matchesQuery&&matchesStatus&&matchesAutomation;
+  }),[groups,query,statusFilter,automationFilter]);
+  const totalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
+  useEffect(()=>{setPage(1);},[query,statusFilter,automationFilter,pageSize]);
+  useEffect(()=>{if(page>totalPages)setPage(totalPages);},[page,totalPages]);
+  const pageRows=useMemo(()=>filtered.slice((page-1)*pageSize,page*pageSize),[filtered,page,pageSize]);
 
   async function force(group: any, input: PayrollSearchInput) {
     const result = await api.searchGroupNow(group.id, input);
@@ -74,67 +90,28 @@ export function GroupsPage() {
 
   return <section>
     <div className="page-heading row-between">
-      <div>
-        <span className="eyebrow">AUTOMAÇÃO</span>
-        <h1>Grupos de funcionários</h1>
-        <p>Configure dias, horários e tipos de folha. Agendas vencidas são retomadas automaticamente pelo worker e cada execução mantém uma trilha completa.</p>
-      </div>
+      <div><span className="eyebrow">AUTOMAÇÃO</span><h1>Grupos de funcionários</h1><p>Configure dias, horários e tipos de folha. Agendas vencidas são retomadas automaticamente pelo worker e cada execução mantém uma trilha completa.</p></div>
       <button className="primary-button compact" onClick={() => setEditing({ new: true })}>+ Novo grupo</button>
     </div>
-
+    <div className="smart-toolbar"><div className="search-box grow"><span>⌕</span><input placeholder="Buscar grupo" value={query} onChange={(event)=>setQuery(event.target.value)}/>{query&&<button className="search-clear" onClick={()=>setQuery('')} aria-label="Limpar busca">×</button>}</div><label className="inline-control">Status<select value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)}><option value="">Todos</option><option value="ACTIVE">Ativos</option><option value="DISABLED">Desabilitados</option></select></label><label className="inline-control">Automação<select value={automationFilter} onChange={(event)=>setAutomationFilter(event.target.value)}><option value="">Todos</option><option value="ON">Ativa</option><option value="OFF">Desativada</option></select></label><button className="secondary-button compact" onClick={()=>void load()}>↻ Atualizar</button></div>
+    <div className="result-strip"><span><strong>{filtered.length}</strong> grupo(s)</span><span className="push">{groups.filter((group)=>group.autoSearchEnabled).length} com automação ativa</span></div>
     {error && <div className={error.includes('enfileirada') ? 'success-note' : 'form-error'}>{error}</div>}
-
     <div className="group-grid">
-      {groups.map((group) => {
+      {pageRows.map((group) => {
         const last = group.lastExecution;
         return <article className="group-card" key={group.id}>
-          <header>
-            <div><span className="eyebrow">GRUPO</span><h3>{group.name}</h3></div>
-            <StatusBadge status={group.status}/>
-          </header>
-
-          <div className="group-kpis">
-            <div><strong>{group.employeeCount}</strong><span>funcionários</span></div>
-            <div><strong>{principal?.companyName ?? '—'}</strong><span>empresa</span></div>
-            <div><strong>{group.schedules?.length ?? 0}</strong><span>horários</span></div>
-          </div>
-
-          <div className="group-section">
-            <span className="label">Tipos de folha</span>
-            <div className="chip-list">{(group.payrollTypes ?? []).map((type: number) => <span className="chip" key={type}>{typeOptions.find((option) => option.value === type)?.label ?? type}</span>)}</div>
-          </div>
-
-          <div className="group-section">
-            <span className="label">Busca automática · {weekdaySummary(group.weekdays)}</span>
-            <div className="schedule-list">{group.schedules?.map((schedule: any) => <span key={schedule.id}>◷ {schedule.runTime}</span>)}</div>
-          </div>
-
-          <div className="group-run-summary">
-            <div>
-              <span className="label">Última execução</span>
-              {last ? <>
-                <div className="group-run-line"><strong>#{last.runId} · {formatDateTime(last.createdAt)}</strong><StatusBadge status={last.status}/></div>
-                <small>{last.successCount ?? 0}/{last.employeeCount ?? 0} processados · {last.failureCount ?? 0} falhas · {formatDuration(last.durationSeconds)}</small>
-              </> : <small>Nenhuma execução registrada.</small>}
-            </div>
-            <div>
-              <span className="label">Próxima execução</span>
-              <strong>{group.autoSearchEnabled ? formatDateTime(group.nextRunAt) : 'Automação desativada'}</strong>
-              <small>{group.autoSearchEnabled ? 'Competência atual · agenda durável' : 'Ative a busca automática para executar os horários.'}</small>
-            </div>
-          </div>
+          <header><div><span className="eyebrow">GRUPO</span><h3>{group.name}</h3></div><StatusBadge status={group.status}/></header>
+          <div className="group-kpis"><div><strong>{group.employeeCount}</strong><span>funcionários</span></div><div><strong>{principal?.companyName ?? '—'}</strong><span>empresa</span></div><div><strong>{group.schedules?.length ?? 0}</strong><span>horários</span></div></div>
+          <div className="group-section"><span className="label">Tipos de folha</span><div className="chip-list">{(group.payrollTypes ?? []).map((type: number) => <span className="chip" key={type}>{typeOptions.find((option) => option.value === type)?.label ?? type}</span>)}</div></div>
+          <div className="group-section"><span className="label">Busca automática · {weekdaySummary(group.weekdays)}</span><div className="schedule-list">{group.schedules?.map((schedule: any) => <span key={schedule.id}>◷ {schedule.runTime}</span>)}</div></div>
+          <div className="group-run-summary"><div><span className="label">Última execução</span>{last ? <><div className="group-run-line"><strong>#{last.runId} · {formatDateTime(last.createdAt)}</strong><StatusBadge status={last.status}/></div><small>{last.successCount ?? 0}/{last.employeeCount ?? 0} processados · {last.failureCount ?? 0} falhas · {formatDuration(last.durationSeconds)}</small></> : <small>Nenhuma execução registrada.</small>}</div><div><span className="label">Próxima execução</span><strong>{group.autoSearchEnabled ? formatDateTime(group.nextRunAt) : 'Automação desativada'}</strong><small>{group.autoSearchEnabled ? 'Competência atual · agenda durável' : 'Ative a busca automática para executar os horários.'}</small></div></div>
           {group.lastScheduleAttempt?.status === 'FAILED' && !group.lastScheduleAttempt?.payrollRunId && <div className="warning-note compact-note"><strong>Última agenda não conseguiu enfileirar a busca.</strong><span>{group.lastScheduleAttempt.errorMessage ?? 'O worker tentará novamente até o limite configurado.'}</span></div>}
-
-          <footer className="group-actions">
-            <button className="secondary-button compact" onClick={() => setEditing(group)}>Configurar</button>
-            <button className="secondary-button compact" disabled={!last} onClick={() => setTimelineGroup(group)}>Execuções e logs</button>
-            <button className="primary-button compact" onClick={() => setSearching(group)}>Buscar holerites agora</button>
-          </footer>
+          <footer className="group-actions"><button className="secondary-button compact" onClick={() => setEditing(group)}>Configurar</button><button className="secondary-button compact" disabled={!last} onClick={() => setTimelineGroup(group)}>Execuções e logs</button><button className="primary-button compact" onClick={() => setSearching(group)}>Buscar holerites agora</button></footer>
         </article>;
       })}
     </div>
-
-    {groups.length === 0 && <div className="empty-state panel">Nenhum grupo configurado.</div>}
+    {filtered.length === 0 && <div className="empty-state panel">Nenhum grupo encontrado para os filtros.</div>}
+    <Pagination page={page} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={setPageSize} pageSizes={[6,12,24,48]} label="grupos"/>
     {editing && <GroupModal group={editing.new ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }}/>} 
     {searching && <PayrollSearchModal title={`Buscar holerites · ${searching.name}`} subtitle="Os tipos vêm pré-selecionados conforme o grupo, mas podem ser alterados somente para esta execução manual." defaultTypes={searching.payrollTypes ?? [2]} onClose={() => setSearching(null)} onSubmit={(input) => force(searching, input)}/>} 
     {timelineGroup && <RunTimelineModal group={timelineGroup} onClose={() => setTimelineGroup(null)}/>} 

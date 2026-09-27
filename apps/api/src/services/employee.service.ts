@@ -136,16 +136,17 @@ export class EmployeeService {
     return refreshed;
   }
 
-  async list(context:UserContext,search=''):Promise<Record<string,unknown>[]>{
-    const term=`%${search.trim()}%`;
-    const [rows]=await this.pool.execute<RowDataPacket[]>(
-      `SELECT e.id,e.name,e.cpf,e.sage_employee_code sageEmployeeCode,e.company_code companyCode,e.birth_date birthDate,e.admission_date admissionDate,
-              e.job_title jobTitle,e.phone,e.sage_status sageStatus,e.status,e.group_id groupId,g.name groupName,
-              CASE WHEN i.pin_hash IS NULL THEN 'PENDING_FIRST_ACCESS' ELSE 'ACTIVE' END accessStatus,i.activated_at activatedAt,i.last_login_at lastLoginAt
-         FROM employees e JOIN employee_groups g ON g.id=e.group_id AND g.company_id=e.company_id JOIN employee_identities i ON i.id=e.identity_id
-        WHERE e.company_id=? AND (?='%%' OR e.name LIKE ? OR e.cpf LIKE ? OR e.sage_employee_code LIKE ?)
-        ORDER BY e.name ASC LIMIT 500`,[context.companyId,term,term,term,term]);
-    return rows;
+  async list(context:UserContext,options:{search?:string;groupId?:number;status?:string;access?:string;sageStatus?:string;page?:number;pageSize?:number}={}):Promise<{employees:Record<string,unknown>[];total:number;page:number;pageSize:number;metrics:{active:number;terminated:number}}>{
+    const page=Math.max(1,Number(options.page??1)||1);const pageSize=Math.max(10,Math.min(100,Number(options.pageSize??25)||25));const offset=(page-1)*pageSize;const where=['e.company_id=?'];const params:Array<string|number>=[context.companyId];
+    const search=String(options.search??'').trim();if(search){const like=`%${search}%`;where.push('(e.name LIKE ? OR e.cpf LIKE ? OR e.sage_employee_code LIKE ?)');params.push(like,like,like);}
+    if(options.groupId){where.push('e.group_id=?');params.push(options.groupId);}
+    if(options.status){where.push('e.status=?');params.push(options.status);}
+    if(options.access==='ACTIVE')where.push('i.pin_hash IS NOT NULL');else if(options.access==='PENDING_FIRST_ACCESS')where.push('i.pin_hash IS NULL');
+    if(options.sageStatus==='TERMINATED')where.push("(UPPER(COALESCE(e.sage_status,''))='DEMITIDO' OR e.status='TERMINATED')");else if(options.sageStatus==='ACTIVE')where.push("(UPPER(COALESCE(e.sage_status,''))<>'DEMITIDO' AND e.status<>'TERMINATED')");
+    const [countRows]=await this.pool.execute<RowDataPacket[]>(`SELECT COUNT(*) value FROM employees e JOIN employee_groups g ON g.id=e.group_id AND g.company_id=e.company_id JOIN employee_identities i ON i.id=e.identity_id WHERE ${where.join(' AND ')}`,params);
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT e.id,e.name,e.cpf,e.sage_employee_code sageEmployeeCode,e.company_code companyCode,e.birth_date birthDate,e.admission_date admissionDate,e.job_title jobTitle,e.phone,e.sage_status sageStatus,e.status,e.group_id groupId,g.name groupName,CASE WHEN i.pin_hash IS NULL THEN 'PENDING_FIRST_ACCESS' ELSE 'ACTIVE' END accessStatus,i.activated_at activatedAt,i.last_login_at lastLoginAt FROM employees e JOIN employee_groups g ON g.id=e.group_id AND g.company_id=e.company_id JOIN employee_identities i ON i.id=e.identity_id WHERE ${where.join(' AND ')} ORDER BY e.name ASC LIMIT ? OFFSET ?`,[...params,pageSize,offset]);
+    const [metricRows]=await this.pool.execute<RowDataPacket[]>(`SELECT SUM(CASE WHEN e.status='ACTIVE' AND UPPER(COALESCE(e.sage_status,''))<>'DEMITIDO' THEN 1 ELSE 0 END) active,SUM(CASE WHEN e.status='TERMINATED' OR UPPER(COALESCE(e.sage_status,''))='DEMITIDO' THEN 1 ELSE 0 END) terminated FROM employees e WHERE e.company_id=?`,[context.companyId]);
+    return{employees:rows,total:Number(countRows[0]?.value??0),page,pageSize,metrics:{active:Number(metricRows[0]?.active??0),terminated:Number(metricRows[0]?.terminated??0)}};
   }
 
   async detail(context:UserContext,id:number):Promise<Record<string,unknown>>{

@@ -1,4 +1,10 @@
-# PayHub — Gestão Digital de Holerites
+# PayHub
+
+## Versão 6.0.1 — UI/UX, paginação e operações em lote
+
+A 6.0.1 adiciona paginação e filtros avançados, seleção persistente entre páginas, seleção de todos os resultados filtrados para liberação/exportação, melhorias no sino de notificações, navegação móvel e correção de deadlocks transitórios na geração de holerites.
+
+Para produção, use `DEPLOY-6.0.1.md` e `VALIDACAO-6.0.1.md`. O schema permanece nas migrations 001–008 e o Connector Sage 3.2.0 continua compatível.
 
 PayHub centraliza integração com Sage, cadastro de funcionários, grupos, automações de busca, holerites, portal do funcionário e assinatura eletrônica reforçada.
 

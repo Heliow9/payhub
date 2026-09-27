@@ -86,7 +86,7 @@ export class DocumentVerificationService{
     const [events]=await this.pool.execute<RowDataPacket[]>(
       `SELECT event_json eventJson,previous_hash previousHash,event_hash eventHash
        FROM signature_events WHERE signature_request_id=? ORDER BY id`,
-      [signatureRequestId],
+      [Number(signatureRequestId)],
     );
     if(!events.length)return false;
     let previous:string|null=null;

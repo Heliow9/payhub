@@ -1,23 +1,26 @@
-# PayHub 0.6.1 — leia antes de atualizar
+# PayHub 6.0.1 — leia antes de atualizar
 
-Este é o pacote-fonte completo da versão **0.6.1 — Agenda Durável + Logs em Lote**. Ele inclui integralmente as funcionalidades da 0.6.0 (performance + verificação documental) e acrescenta a correção da busca automática por grupo.
+Esta release é uma evolução de UI/UX da base 0.6.1 e mantém as funcionalidades já entregues: worker durável, agenda durável, logs de lote, verificação documental e Connector Sage 3.2.0.
 
-Por segurança, o ZIP de entrega **não inclui `node_modules` nem artefatos `dist` pré-compilados**. O build deve ser feito no servidor com as dependências oficiais do projeto.
+## Principais mudanças
 
-## Ordem obrigatória
+- paginação e filtros avançados;
+- seleção de holerites entre páginas;
+- **Selecionar todos os resultados filtrados**;
+- liberação e exportação em lote;
+- paginação real no backend para holerites e funcionários;
+- melhoria da central de notificações;
+- menu móvel e melhorias de acessibilidade;
+- correção permanente de deadlocks transitórios na geração, com concorrência segura e retry.
 
-1. Faça backup da aplicação, banco MySQL e storage documental.
-2. Pare `payhub-worker` e `payhub-api` antes da troca final/migration.
-3. Substitua o código, preservando `.env`, storage e configurações locais.
-4. Execute `npm ci`.
-5. Compile API e dashboard.
-6. Execute `npm run db:migrate --workspace @payhub/api`.
-   - vindo da **0.6.0**, deve aplicar a `008_durable_group_schedule_run_events.sql`;
-   - vindo da **0.5.3**, deve aplicar primeiro a `007` e depois a `008`.
-7. Suba API e worker com PM2.
-8. Execute os quatro verificadores de produção.
-9. Faça um teste de agenda em um grupo de homologação e confirme a timeline completa.
+## Banco
 
-O hotfix de bootstrap PM2 do worker, já confirmado em produção na 0.5.3, permanece incorporado.
+Não há migration nova nesta versão. O schema continua em 008.
 
-Consulte **DEPLOY-0.6.1.md** e **VALIDACAO-0.6.1.md** antes do deploy.
+## Connector
+
+Se o Connector Sage 3.2.0 já foi instalado, não é necessário trocá-lo novamente.
+
+## Produção
+
+Leia `DEPLOY-6.0.1.md` e `VALIDACAO-6.0.1.md`. Execute build e verificadores antes de considerar a atualização homologada.

@@ -16,6 +16,9 @@ import { createDocumentNumber } from './document-number.js';
 
 const gzipAsync=promisify(gzip);
 
+function isTransientDbLock(error:unknown):boolean{const value=error as {code?:string;errno?:number};return value?.code==='ER_LOCK_DEADLOCK'||value?.errno===1213||value?.code==='ER_LOCK_WAIT_TIMEOUT'||value?.errno===1205;}
+const sleep=(ms:number)=>new Promise((resolve)=>setTimeout(resolve,ms));
+
 
 function sageSnapshotValue(raw:unknown,aliases:string[]):string|null{
   const snapshot=parseJson<Record<string,unknown>>(raw,{});const entries=new Map(Object.entries(snapshot).map(([k,v])=>[k.toLowerCase(),v]));
@@ -27,6 +30,8 @@ const legacyPayrollFooter='Documento gerado pelo PayHub a partir dos dados de fo
 
 function exportFileSafe(value:string):string{return value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9._-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,90)||'HOLERITE';}
 export type PayrollExportEntry={payrollId:number;employeeName:string;competence:string;typeLabel:string;status:string;documentKind:'ASSINADO'|'ORIGINAL';sha256:string;filename:string;buffer:Buffer};
+type PayrollAdminFilters={employeeId?:number;groupId?:number;year?:number;month?:number;status?:string;type?:number;search?:string};
+type PayrollAdminPageFilters=PayrollAdminFilters&{page?:number;pageSize?:number;sort?:string};
 
 export class PayrollService{
   constructor(private pool:Pool,private storage:StorageService,private audit:AuditService,private notifications:NotificationService,private appOrigin='http://localhost'){}
@@ -174,14 +179,14 @@ export class PayrollService{
     const job=await this.normalizationJob(claim);const normalized=await this.normalizedInput(job);const result:NormalizationResult={created:0,repaired:0,unchanged:0,skipped:0};
     const companyId=Number(job.companyId);const payrollRunId=job.payrollRunId==null?null:Number(job.payrollRunId);
     const employees=await this.preloadEmployees(companyId,normalized);const currents=await this.preloadCurrentPayrolls(companyId,employees,normalized);
-    const concurrency=3;
+    const concurrency=Math.max(1,Math.min(3,Number(process.env.PAYROLL_GENERATION_CONCURRENCY??1)||1));
     for(let start=0;start<normalized.length;start+=concurrency){
       const chunk=normalized.slice(start,start+concurrency);
       const outcomes=await Promise.all(chunk.map(async(payroll)=>{
         let employee=employees.get(String(payroll.sageEmployeeCode))??null;
         if(!employee)employee=await this.employeeForPayroll(companyId,payroll.sageEmployeeCode,Number(job.id),payrollRunId);
         const current=employee?currents.get(`${employee.id}|${payroll.year}|${payroll.month}|${payroll.payrollType}`)??null:null;
-        const outcome=await this.persistNormalizedPayroll(job,payroll,employee,current);await renew();return outcome;
+        let outcome:'created'|'repaired'|'unchanged'|'skipped'|null=null;for(let attempt=1;attempt<=3;attempt++){try{outcome=await this.persistNormalizedPayroll(job,payroll,employee,current);break;}catch(error){if(!isTransientDbLock(error)||attempt===3)throw error;await sleep(120*attempt+Math.floor(Math.random()*80));await renew();}}await renew();return outcome!;
       }));
       for(const outcome of outcomes)result[outcome]++;
     }
@@ -207,9 +212,33 @@ export class PayrollService{
     }catch(error){await this.pool.execute(`UPDATE import_jobs SET normalization_state='PENDING',normalization_owner=NULL,normalization_lease_until=NULL,normalization_error=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=? AND normalization_owner=?`,[(error instanceof Error?error.message:String(error)).slice(0,1000),jobId,claim.companyId,owner]);throw error;}
   }
 
-  async listAdmin(context:UserContext,filters:{employeeId?:number;groupId?:number;year?:number;month?:number;status?:string;type?:number}={}):Promise<Record<string,unknown>[]>{
-    const where=['p.company_id=?','p.is_current=1'];const params:Array<number|string>=[context.companyId];if(filters.employeeId){where.push('p.employee_id=?');params.push(filters.employeeId);}if(filters.groupId){where.push('e.group_id=?');params.push(filters.groupId);}if(filters.year){where.push('p.year=?');params.push(filters.year);}if(filters.month){where.push('p.month=?');params.push(filters.month);}if(filters.status){where.push('p.status=?');params.push(filters.status);}if(filters.type){where.push('p.payroll_type=?');params.push(filters.type);}
-    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.document_number documentNumber,p.employee_id employeeId,e.name employeeName,e.cpf,e.group_id groupId,g.name groupName,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.version,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt,p.created_at createdAt,d.original_sha256 originalSha256,d.signed_sha256 signedSha256 FROM payrolls p JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id JOIN employee_groups g ON g.id=e.group_id AND g.company_id=p.company_id LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE ${where.join(' AND ')} ORDER BY p.year DESC,p.month DESC,e.name ASC,p.payroll_type ASC LIMIT 1000`,params);return rows;
+  private adminWhere(context:UserContext,filters:PayrollAdminFilters={}):{where:string[];params:Array<number|string>}{
+    const where=['p.company_id=?','p.is_current=1'];const params:Array<number|string>=[context.companyId];
+    if(filters.employeeId){where.push('p.employee_id=?');params.push(filters.employeeId);}
+    if(filters.groupId){where.push('e.group_id=?');params.push(filters.groupId);}
+    if(filters.year){where.push('p.year=?');params.push(filters.year);}
+    if(filters.month){where.push('p.month=?');params.push(filters.month);}
+    if(filters.status){where.push('p.status=?');params.push(filters.status);}
+    if(filters.type){where.push('p.payroll_type=?');params.push(filters.type);}
+    const search=String(filters.search??'').trim();if(search){const like=`%${search}%`;const digits=search.replace(/\D/g,'');where.push(`(e.name LIKE ? OR e.cpf LIKE ? OR p.document_number LIKE ? OR g.name LIKE ? OR p.payroll_type_label LIKE ?${digits?' OR e.cpf LIKE ?':''})`);params.push(like,like,like,like,like);if(digits)params.push(`%${digits}%`);}
+    return{where,params};
+  }
+
+  async listAdminPage(context:UserContext,filters:PayrollAdminPageFilters={}):Promise<{payrolls:Record<string,unknown>[];total:number;page:number;pageSize:number}>{
+    const page=Math.max(1,Number(filters.page??1)||1);const pageSize=Math.max(10,Math.min(100,Number(filters.pageSize??25)||25));const offset=(page-1)*pageSize;const {where,params}=this.adminWhere(context,filters);
+    const sort=String(filters.sort??'newest');const orderBy=sort==='name'?'e.name ASC,p.year DESC,p.month DESC,p.payroll_type ASC':sort==='net-desc'?'p.net_amount DESC,e.name ASC,p.year DESC,p.month DESC':sort==='status'?'p.status ASC,e.name ASC,p.year DESC,p.month DESC':'p.year DESC,p.month DESC,e.name ASC,p.payroll_type ASC';
+    const [countRows]=await this.pool.execute<RowDataPacket[]>(`SELECT COUNT(*) value FROM payrolls p JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id JOIN employee_groups g ON g.id=e.group_id AND g.company_id=p.company_id WHERE ${where.join(' AND ')}`,params);
+    const total=Number(countRows[0]?.value??0);const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.document_number documentNumber,p.employee_id employeeId,e.name employeeName,e.cpf,e.group_id groupId,g.name groupName,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.version,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt,p.created_at createdAt,d.original_sha256 originalSha256,d.signed_sha256 signedSha256 FROM payrolls p JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id JOIN employee_groups g ON g.id=e.group_id AND g.company_id=p.company_id LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,[...params,pageSize,offset]);
+    return{payrolls:rows,total,page,pageSize};
+  }
+
+  async listAdminSelection(context:UserContext,filters:PayrollAdminFilters={}):Promise<Array<{id:number;status:string}>>{
+    const {where,params}=this.adminWhere(context,filters);const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.status FROM payrolls p JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id JOIN employee_groups g ON g.id=e.group_id AND g.company_id=p.company_id WHERE ${where.join(' AND ')} ORDER BY p.id LIMIT 5000`,params);return rows.map((row)=>({id:Number(row.id),status:String(row.status)}));
+  }
+
+  async listAdmin(context:UserContext,filters:PayrollAdminFilters={}):Promise<Record<string,unknown>[]> {
+    const {where,params}=this.adminWhere(context,filters);
+    const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.document_number documentNumber,p.employee_id employeeId,e.name employeeName,e.cpf,e.group_id groupId,g.name groupName,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.version,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt,p.created_at createdAt,d.original_sha256 originalSha256,d.signed_sha256 signedSha256 FROM payrolls p JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id JOIN employee_groups g ON g.id=e.group_id AND g.company_id=p.company_id LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE ${where.join(' AND ')} ORDER BY p.year DESC,p.month DESC,e.name ASC,p.payroll_type ASC LIMIT 5000`,params);return rows;
   }
 
   async listEmployee(context:EmployeeContext):Promise<Record<string,unknown>[]>{const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.document_number documentNumber,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt FROM payrolls p WHERE p.employee_id=? AND p.company_id=? AND p.is_current=1 AND p.status IN ('SIGNATURE_REQUESTED','VIEWED','SIGNED') ORDER BY p.year DESC,p.month DESC,p.payroll_type`,[context.employeeId,context.companyId]);return rows;}
