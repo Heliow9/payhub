@@ -158,6 +158,28 @@ export class EmployeeService {
     return {...row,hasSignedPayroll:Number(signedRows[0]?.value??0)>0,sageSnapshot:parseJson(row.sage_snapshot_json,null),sage_snapshot_json:undefined};
   }
 
+  async resetPin(context:UserContext,employeeId:number,meta:RequestMeta):Promise<void>{
+    const conn=await this.pool.getConnection();let employee:RowDataPacket|undefined;
+    try{
+      await conn.beginTransaction();
+      const [rows]=await conn.execute<RowDataPacket[]>(
+        `SELECT e.identity_id identityId,e.name,e.cpf
+           FROM employees e
+          WHERE e.id=? AND e.company_id=?
+          LIMIT 1 FOR UPDATE`,[employeeId,context.companyId]);
+      employee=rows[0];if(!employee)throw notFound('Funcionário não encontrado.');
+      await conn.execute(
+        `UPDATE employee_identities
+            SET pin_hash=NULL,activated_at=NULL,pin_changed_at=NULL,failed_attempts=0,locked_until=NULL,updated_at=UTC_TIMESTAMP()
+          WHERE id=?`,[employee.identityId]);
+      await conn.execute(
+        `UPDATE employee_sessions SET revoked_at=UTC_TIMESTAMP()
+          WHERE identity_id=? AND revoked_at IS NULL`,[employee.identityId]);
+      await conn.commit();
+    }catch(error){await conn.rollback();throw error;}finally{conn.release();}
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_PIN_RESET',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{name:String(employee!.name),cpfLast4:String(employee!.cpf).slice(-4),identityId:Number(employee!.identityId)}});
+  }
+
   async selfProfile(context:EmployeeContext):Promise<Record<string,unknown>>{
     const [rows]=await this.pool.execute<RowDataPacket[]>(
       `SELECT e.id,e.name,e.cpf,e.company_code companyCode,e.sage_employee_code sageEmployeeCode,

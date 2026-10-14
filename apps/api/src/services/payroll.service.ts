@@ -32,6 +32,11 @@ function exportFileSafe(value:string):string{return value.normalize('NFD').repla
 export type PayrollExportEntry={payrollId:number;employeeName:string;competence:string;typeLabel:string;status:string;documentKind:'ASSINADO'|'ORIGINAL';sha256:string;filename:string;buffer:Buffer};
 type PayrollAdminFilters={employeeId?:number;groupId?:number;year?:number;month?:number;status?:string;type?:number;search?:string};
 type PayrollAdminPageFilters=PayrollAdminFilters&{page?:number;pageSize?:number;sort?:string};
+export type SignatureStatusReportFilter='SIGNED'|'PENDING'|'BOTH';
+export interface SignatureStatusReportRow{
+  employeeId:number;employeeName:string;cpf:string;birthDate:string|null;costCenter:string;
+  year:number;month:number;payrollTypeLabel:string;status:'SIGNED'|'SIGNATURE_REQUESTED'|'VIEWED';signedAt:string|null;
+}
 
 export class PayrollService{
   constructor(private pool:Pool,private storage:StorageService,private audit:AuditService,private notifications:NotificationService,private appOrigin='http://localhost'){}
@@ -239,6 +244,29 @@ export class PayrollService{
   async listAdmin(context:UserContext,filters:PayrollAdminFilters={}):Promise<Record<string,unknown>[]> {
     const {where,params}=this.adminWhere(context,filters);
     const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.document_number documentNumber,p.employee_id employeeId,e.name employeeName,e.cpf,e.group_id groupId,g.name groupName,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.version,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt,p.created_at createdAt,d.original_sha256 originalSha256,d.signed_sha256 signedSha256 FROM payrolls p JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id JOIN employee_groups g ON g.id=e.group_id AND g.company_id=p.company_id LEFT JOIN payroll_documents d ON d.payroll_id=p.id WHERE ${where.join(' AND ')} ORDER BY p.year DESC,p.month DESC,e.name ASC,p.payroll_type ASC LIMIT 5000`,params);return rows;
+  }
+
+  async signatureStatusReport(context:UserContext,filters:{status:SignatureStatusReportFilter;groupId?:number}):Promise<SignatureStatusReportRow[]>{
+    const statuses=filters.status==='SIGNED'?['SIGNED']:filters.status==='PENDING'?['SIGNATURE_REQUESTED','VIEWED']:['SIGNED','SIGNATURE_REQUESTED','VIEWED'];
+    const where=['p.company_id=?','p.is_current=1'];const params:Array<number|string>=[context.companyId];
+    if(filters.groupId){where.push('e.group_id=?');params.push(filters.groupId);}
+    where.push(`p.status IN (${statuses.map(()=>'?').join(',')})`);params.push(...statuses);
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM payrolls newer
+       WHERE newer.company_id=p.company_id
+         AND newer.employee_id=p.employee_id
+         AND newer.is_current=1
+         AND (newer.year>p.year OR (newer.year=p.year AND newer.month>p.month) OR (newer.year=p.year AND newer.month=p.month AND newer.id>p.id))
+    )`);
+    const [rows]=await this.pool.execute<RowDataPacket[]>(
+      `SELECT e.id employeeId,e.name employeeName,e.cpf,DATE_FORMAT(e.birth_date,'%Y-%m-%d') birthDate,
+              g.name costCenter,p.year,p.month,p.payroll_type_label payrollTypeLabel,p.status,p.signed_at signedAt
+         FROM payrolls p
+         JOIN employees e ON e.id=p.employee_id AND e.company_id=p.company_id
+         JOIN employee_groups g ON g.id=e.group_id AND g.company_id=p.company_id
+        WHERE ${where.join(' AND ')}
+        ORDER BY g.name ASC,e.name ASC,e.id ASC`,params);
+    return rows.map((row)=>({employeeId:Number(row.employeeId),employeeName:String(row.employeeName),cpf:String(row.cpf),birthDate:row.birthDate?String(row.birthDate):null,costCenter:String(row.costCenter),year:Number(row.year),month:Number(row.month),payrollTypeLabel:String(row.payrollTypeLabel),status:String(row.status) as SignatureStatusReportRow['status'],signedAt:row.signedAt?String(row.signedAt):null}));
   }
 
   async listEmployee(context:EmployeeContext):Promise<Record<string,unknown>[]>{const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT p.id,p.document_number documentNumber,p.year,p.month,p.payroll_type payrollType,p.payroll_type_label payrollTypeLabel,p.status,p.gross_amount grossAmount,p.deduction_amount deductionAmount,p.net_amount netAmount,p.released_at releasedAt,p.signed_at signedAt FROM payrolls p WHERE p.employee_id=? AND p.company_id=? AND p.is_current=1 AND p.status IN ('SIGNATURE_REQUESTED','VIEWED','SIGNED') ORDER BY p.year DESC,p.month DESC,p.payroll_type`,[context.employeeId,context.companyId]);return rows;}

@@ -26,6 +26,36 @@ describe('isolamento de grupos e funcionários',()=>{
     await expect(service.createFromLookup(context,5,3,undefined,{ipAddress:null,userAgent:null})).resolves.toBe(44);
     expect(sqlLog.join('\n')).not.toMatch(/UPDATE employee_identities SET pin_hash|employee_credentials/i);
   });
+
+  it('reinicia o PIN global e revoga todas as sessões da identidade',async()=>{
+    const calls:Array<{sql:string;params:unknown[]}>=[];
+    const connection={
+      beginTransaction:async()=>undefined,commit:async()=>undefined,rollback:async()=>undefined,release:()=>undefined,
+      execute:async(sql:string,params:unknown[])=>{
+        calls.push({sql,params});
+        if(sql.includes('FROM employees e'))return[[{identityId:55,name:'Maria da Silva',cpf:'52998224725'}]];
+        return[{affectedRows:1}];
+      }
+    };
+    const auditCalls:any[]=[];
+    const service=new EmployeeService({getConnection:async()=>connection} as never,{} as never,{record:async(input:any)=>{auditCalls.push(input);}} as never,{} as never);
+
+    await service.resetPin(context,200,{ipAddress:'127.0.0.1',userAgent:'vitest'});
+
+    expect(calls[0]?.sql).toContain('e.company_id=?');
+    expect(calls[0]?.params).toEqual([200,1]);
+    expect(calls.some((call)=>call.sql.includes('pin_hash=NULL')&&call.sql.includes('failed_attempts=0')&&call.params[0]===55)).toBe(true);
+    expect(calls.some((call)=>call.sql.includes('UPDATE employee_sessions')&&call.sql.includes('identity_id=?')&&call.params[0]===55)).toBe(true);
+    expect(auditCalls).toEqual([expect.objectContaining({companyId:1,actorUserId:7,action:'EMPLOYEE_PIN_RESET',targetType:'EMPLOYEE',targetId:200,metadata:expect.objectContaining({cpfLast4:'4725'})})]);
+  });
+
+  it('não reinicia PIN de funcionário de outra empresa',async()=>{
+    const writes:string[]=[];
+    const connection={beginTransaction:async()=>undefined,commit:async()=>undefined,rollback:async()=>undefined,release:()=>undefined,execute:async(sql:string)=>{if(sql.includes('UPDATE '))writes.push(sql);return[[]];}};
+    const service=new EmployeeService({getConnection:async()=>connection} as never,{} as never,{record:async()=>undefined} as never,{} as never);
+    await expect(service.resetPin(context,999,{ipAddress:null,userAgent:null})).rejects.toMatchObject({statusCode:404});
+    expect(writes).toEqual([]);
+  });
 });
 
 describe('isolamento de holerites e acesso histórico',()=>{

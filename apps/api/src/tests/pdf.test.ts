@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPayrollPdf } from '../services/pdf.service.js';
+import { buildPayrollPdf, buildSignatureStatusReportPdf } from '../services/pdf.service.js';
 
 describe('PDF canônico do holerite', () => {
   it('gera duas vias no padrão do recibo Sage com vencimentos e descontos separados', () => {
@@ -54,4 +54,31 @@ describe('PDF canônico do holerite', () => {
     expect(raw).not.toContain('(DATA)');
   });
 
+});
+
+describe('relatório PDF de assinaturas',()=>{
+  it('exibe filtros, dados pessoais e seções sem duplicar linhas',()=>{
+    const pdf=buildSignatureStatusReportPdf({
+      companyName:'Empresa Teste',statusFilter:'BOTH',costCenter:'Todos',generatedAt:new Date('2026-10-14T15:30:00Z'),
+      rows:[
+        {employeeId:1,employeeName:'Maria Aparecida da Silva dos Santos Oliveira',cpf:'52998224725',birthDate:'1990-05-20',costCenter:'Operações',year:2026,month:9,payrollTypeLabel:'Mensal',status:'SIGNED',signedAt:'2026-10-10 14:20:00'},
+        {employeeId:2,employeeName:'João dos Santos',cpf:'11144477735',birthDate:'1985-02-03',costCenter:'Financeiro',year:2026,month:9,payrollTypeLabel:'Mensal',status:'VIEWED',signedAt:null}
+      ]
+    });
+    const raw=pdf.toString('latin1');
+    expect(pdf.subarray(0,8).toString('latin1')).toBe('%PDF-1.4');
+    expect(raw).toContain('Centro de Custo');
+    expect(raw).toContain('Já assinaram');
+    expect(raw).toContain('Faltam assinar');
+    expect(raw).toContain('Maria Aparecida da Silva dos Santos Oliveira');
+    expect(raw).toContain('529.982.247-25');
+    expect(raw).toContain('20/05/1990');
+    expect((raw.match(/Maria Aparecida da Silva dos Santos Oliveira/g)??[])).toHaveLength(1);
+  });
+
+  it('gera um PDF válido quando nenhum funcionário corresponde aos filtros',()=>{
+    const pdf=buildSignatureStatusReportPdf({companyName:'Empresa Teste',statusFilter:'PENDING',costCenter:'Administrativo',generatedAt:new Date('2026-10-14T15:30:00Z'),rows:[]});
+    expect(pdf.subarray(0,8).toString('latin1')).toBe('%PDF-1.4');
+    expect(pdf.toString('latin1')).toContain('Nenhum funcionário encontrado');
+  });
 });

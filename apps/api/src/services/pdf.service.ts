@@ -63,10 +63,19 @@ export interface EvidenceReceiptPdfInput{
   verificationUrl?:string;
 }
 
+export interface SignatureStatusReportPdfInput{
+  companyName:string;
+  statusFilter:'SIGNED'|'PENDING'|'BOTH';
+  costCenter:string;
+  generatedAt:Date;
+  rows:Array<{employeeId:number;employeeName:string;cpf:string;birthDate:string|null;costCenter:string;year:number;month:number;payrollTypeLabel:string;status:'SIGNED'|'SIGNATURE_REQUESTED'|'VIEWED';signedAt:string|null}>;
+}
+
 type PdfObject=Buffer;
 interface PdfImageResource{name:string;data:Buffer;width:number;height:number;}
 interface PdfPageDefinition{commands:string[];images?:PdfImageResource[];}
 function text(x:number,y:number,value:string,size=7,bold=false):string{return `BT /${bold?'F2':'F1'} ${size} Tf 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(latin(value))}) Tj ET`;}
+function textFitWidth(x:number,y:number,maxWidth:number,value:string,size=7,bold=false):string{const safe=latin(value);const natural=Math.max(1,safe.length*size*.49);const scale=Math.max(35,Math.min(100,(maxWidth/natural)*100));return `BT /${bold?'F2':'F1'} ${size} Tf ${scale.toFixed(2)} Tz 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(safe)}) Tj ET`;}
 function textRight(x:number,y:number,value:string,size=7,bold=false):string{const width=latin(value).length*size*.49;return text(x-width,y,value,size,bold);} 
 function textCenter(x:number,y:number,w:number,value:string,size=7,bold=false):string{const width=latin(value).length*size*.49;return text(x+(w-width)/2,y,value,size,bold);} 
 function rotatedText(x:number,y:number,value:string,size=6,bold=false):string{return `BT /${bold?'F2':'F1'} ${size} Tf 0 1 -1 0 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(latin(value))}) Tj ET`;}
@@ -183,6 +192,40 @@ function hashField(commands:string[],label:string,value:string,y:number){const x
 
 export function buildPayrollPdf(input:PdfPayrollInput):Buffer{return buildPdfFromPageDefinitions([{commands:[...drawReceipt(input,445),...drawReceipt(input,25)]}]);}
 export function buildTextPdf(allLines:string[]):Buffer{const pages:string[][]=[];for(let i=0;i<allLines.length;i+=48)pages.push(allLines.slice(i,i+48));if(pages.length===0)pages.push(['']);return buildPdfFromPageDefinitions(pages.map((pageLines)=>{const commands=['BT','/F1 10 Tf','46 795 Td'];pageLines.forEach((raw,index)=>{const lineValue=latin(raw);if(index>0)commands.push('0 -15 Td');commands.push(`(${pdfEscape(lineValue)}) Tj`);});commands.push('ET');return{commands};}));}
+
+function fullCpf(value:string):string{const digits=String(value??'').replace(/\D/g,'').padStart(11,'0').slice(-11);return `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`;}
+function dateTimeBr(value:string|null):string{if(!value)return'—';const match=/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(value);return match?`${match[3]}/${match[2]}/${match[1]} ${match[4]}:${match[5]}`:value;}
+export function buildSignatureStatusReportPdf(input:SignatureStatusReportPdfInput):Buffer{
+  const filterLabel=input.statusFilter==='SIGNED'?'Já assinaram':input.statusFilter==='PENDING'?'Faltam assinar':'Já assinaram e faltam assinar';
+  const sections:Array<{title:string;rows:SignatureStatusReportPdfInput['rows']}>=input.statusFilter==='BOTH'?
+    [{title:'Já assinaram',rows:input.rows.filter((row)=>row.status==='SIGNED')},{title:'Faltam assinar',rows:input.rows.filter((row)=>row.status!=='SIGNED')}]:
+    [{title:filterLabel,rows:input.rows}];
+  const pageDefinitions:PdfPageDefinition[]=[];let pageNumber=0;
+  const makePage=(sectionTitle:string,rows:SignatureStatusReportPdfInput['rows'],continued:boolean)=>{
+    pageNumber++;const commands:string[]=[];const margin=30;const right=565;
+    commands.push(text(margin,806,'PayHub',15,true),text(margin,786,'Relatório de assinaturas de holerites',12,true));
+    commands.push(text(margin,768,`Empresa: ${input.companyName}`,7.5),text(margin,756,`Situação: ${filterLabel} | Centro de Custo: ${input.costCenter}`,7.5));
+    commands.push(text(margin,744,`Gerado em: ${input.generatedAt.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})}`,7.5),textRight(right,744,`Página ${pageNumber}`,7.5));
+    commands.push(line(margin,735,right,735,.8),text(margin,716,continued?`${sectionTitle} (continuação)`:sectionTitle,10,true));
+    const top=697;commands.push(fillRect(margin,top,535,18,.91));
+    commands.push(text(34,top+6,'Funcionário',6.1,true),text(158,top+6,'CPF',6.1,true),text(229,top+6,'Nascimento',6.1,true),text(283,top+6,'Centro de Custo',6.1,true),text(382,top+6,'Competência / Tipo',6.1,true),text(482,top+6,'Situação / Data',6.1,true));
+    let y=top-18;
+    for(const row of rows){
+      commands.push(line(margin,y+14,right,y+14,.25));
+      commands.push(textFitWidth(34,y+4,92,row.employeeName,5.8),text(158,y+4,fullCpf(row.cpf),5.8),text(229,y+4,fmtDate(row.birthDate),5.8),textFitWidth(283,y+4,93,row.costCenter,5.8));
+      commands.push(textFitWidth(382,y+4,94,`${String(row.month).padStart(2,'0')}/${row.year} · ${row.payrollTypeLabel}`,5.8));
+      commands.push(text(482,y+4,row.status==='SIGNED'?'Assinado':row.status==='VIEWED'?'Visualizado':'Aguardando',5.8,true));
+      if(row.status==='SIGNED')commands.push(text(482,y-5,dateTimeBr(row.signedAt),5.2));
+      y-=21;
+    }
+    if(rows.length===0)commands.push(textCenter(margin,650,535,'Nenhum funcionário encontrado para os filtros informados.',9));
+    commands.push(line(margin,36,right,36,.5),text(margin,23,'Uma linha por funcionário, considerando o holerite corrente mais recente.',6.3));
+    pageDefinitions.push({commands});
+  };
+  for(const section of sections){if(section.rows.length===0){makePage(section.title,[],false);continue;}for(let index=0;index<section.rows.length;index+=29)makePage(section.title,section.rows.slice(index,index+29),index>0);}
+  if(pageDefinitions.length===0)makePage(filterLabel,[],false);
+  return buildPdfFromPageDefinitions(pageDefinitions);
+}
 
 export function buildEvidenceReceiptPdf(input:EvidenceReceiptPdfInput):Buffer{
   const commands:string[]=[];const images:PdfImageResource[]=[];const margin=38;const contentWidth=595-(margin*2);
