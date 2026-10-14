@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp, type PayHubServices } from './app.js';
 import type { Env } from './config/env.js';
 import { notFound } from './core/errors.js';
@@ -17,6 +17,7 @@ const employeeB:Principal={kind:'EMPLOYEE',id:220,identityId:10,companyId:2,comp
 function fixture(){
   const csrfAdmin='csrf-admin-realenergy';
   const csrfEmployee='csrf-employee-company-b';
+  const refreshCsrf=vi.fn(async(_hash:string|undefined,principal:Principal)=>principal.kind==='USER'?csrfAdmin:csrfEmployee);
   const auth={
     authenticate:async(token?:string)=>{
       if(token==='admin-token')return{principal:master,tokenHash:'hash-admin',csrfHash:sha256(csrfAdmin)};
@@ -29,7 +30,7 @@ function fixture(){
       {employeeId:220,companyId:2,companyName:'Empresa B',name:'Helio Teste',status:'ACTIVE' as const,accessMode:'FULL' as const},
     ]}),
     selectEmployeeCompany:async()=>({principal:employeeB,token:'employee-b-token',csrfToken:csrfEmployee,expiresAt:new Date(Date.now()+3600_000),client:'WEB' as const}),
-    refreshCsrf:async(_hash:string|undefined,principal:Principal)=>principal.kind==='USER'?csrfAdmin:csrfEmployee,
+    refreshCsrf,
     logout:async()=>undefined,
     listEmployeeCompanies:async()=>[],
     switchEmployeeCompany:async()=>({principal:employeeB,token:'employee-b-token',csrfToken:csrfEmployee,expiresAt:new Date(Date.now()+3600_000)}),
@@ -43,7 +44,7 @@ function fixture(){
   };
   const services={auth,employees,runs:{},audit:{},connector:{},groups:{},payrolls:{},settings:{},signatures:{},storage:{},notifications:{},provisioning:{}} as unknown as PayHubServices;
   const pool={execute:async()=>[[]],query:async()=>[[]]} as never;
-  return{app:createApp(pool,env,services),csrfAdmin};
+  return{app:createApp(pool,env,services),csrfAdmin,refreshCsrf};
 }
 
 describe('PayHub active HTTP stack - multiempresa',()=>{
@@ -82,5 +83,38 @@ describe('PayHub active HTTP stack - multiempresa',()=>{
     expect(selected.status).toBe(200);
     expect(selected.body.principal).toMatchObject({kind:'EMPLOYEE',companyId:2,identityId:10,accessMode:'FULL'});
     expect(selected.headers['set-cookie']?.join(';')).toContain('payhub_session=employee-b-token');
+  });
+
+  it('preserva o CSRF válido ao reconciliar uma sessão existente',async()=>{
+    const{app,csrfAdmin,refreshCsrf}=fixture();
+    const response=await request(app)
+      .get('/api/auth/me')
+      .set('Cookie', [`payhub_session=admin-token`, `payhub_csrf=${csrfAdmin}`]);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({principal:master,csrfToken:csrfAdmin});
+    expect(refreshCsrf).not.toHaveBeenCalled();
+  });
+
+  it('recupera e sincroniza o cookie CSRF quando ele estiver ausente',async()=>{
+    const{app,csrfAdmin,refreshCsrf}=fixture();
+    const response=await request(app)
+      .get('/api/auth/me')
+      .set('Cookie', ['payhub_session=admin-token']);
+    expect(response.status).toBe(200);
+    expect(response.body.csrfToken).toBe(csrfAdmin);
+    expect(refreshCsrf).toHaveBeenCalledOnce();
+    expect(response.headers['set-cookie']?.join(';')).toContain(`payhub_csrf=${csrfAdmin}`);
+  });
+
+  it('remove os dois cookies ao encerrar a sessão web',async()=>{
+    const{app,csrfAdmin}=fixture();
+    const response=await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', [`payhub_session=admin-token`, `payhub_csrf=${csrfAdmin}`])
+      .set('x-csrf-token',csrfAdmin);
+    expect(response.status).toBe(204);
+    const cookies=response.headers['set-cookie']?.join(';')??'';
+    expect(cookies).toContain('payhub_session=;');
+    expect(cookies).toContain('payhub_csrf=;');
   });
 });

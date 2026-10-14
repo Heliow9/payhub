@@ -95,7 +95,20 @@ export function authRoutes(auth: AuthService, env: Env) {
   r.get('/me', async (req, res, next) => {
     try {
       if (!req.principal) return res.json({ principal: null, csrfToken: '' });
-      const csrfToken = await auth.refreshCsrf(req.sessionTokenHash, req.principal);
+      const suppliedCsrf = req.get('x-csrf-token') || (req.cookies?.payhub_csrf as string | undefined);
+      const csrfToken = suppliedCsrf && req.csrfHash && sha256(suppliedCsrf) === req.csrfHash
+        ? suppliedCsrf
+        : await auth.refreshCsrf(req.sessionTokenHash, req.principal);
+      if (csrfToken !== suppliedCsrf && req.get('x-payhub-client') !== 'mobile') {
+        const ttlHours = req.principal.kind === 'USER' ? env.SESSION_TTL_HOURS : env.EMPLOYEE_SESSION_TTL_HOURS;
+        res.cookie('payhub_csrf', csrfToken, {
+          httpOnly: false,
+          secure: env.COOKIE_SECURE,
+          sameSite: 'lax',
+          path: '/',
+          maxAge: ttlHours * 3600_000,
+        });
+      }
       return res.json({ principal: req.principal, csrfToken });
     } catch (e) { next(e); }
   });
@@ -104,6 +117,7 @@ export function authRoutes(auth: AuthService, env: Env) {
     try {
       await auth.logout(req.sessionTokenHash, req.principal, requestMeta(req));
       res.clearCookie('payhub_session', { path: '/' });
+      res.clearCookie('payhub_csrf', { path: '/' });
       res.status(204).end();
     } catch (e) { next(e); }
   });

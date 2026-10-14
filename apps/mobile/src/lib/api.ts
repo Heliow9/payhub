@@ -14,6 +14,9 @@ const TOKEN_KEY='payhub_mobile_token';
 const CSRF_KEY='payhub_mobile_csrf';
 let accessToken='';
 let csrfToken='';
+type CurrentSession={principal:Principal|null;csrfToken:string};
+let currentSessionRequest:Promise<CurrentSession>|null=null;
+const signatureRequests=new Map<number,Promise<any>>();
 
 export class ApiError extends Error { constructor(message:string, public status:number, public code?:string, public details?:unknown){super(message);} }
 export async function restoreSessionSecrets(){ accessToken=(await SecureStore.getItemAsync(TOKEN_KEY))??''; csrfToken=(await SecureStore.getItemAsync(CSRF_KEY))??''; }
@@ -28,7 +31,7 @@ async function request<T>(path:string, options:RequestInit={}):Promise<T>{
   headers.set('x-payhub-client','mobile');
   if(accessToken) headers.set('authorization',`Bearer ${accessToken}`);
   const method=(options.method??'GET').toUpperCase();
-  if(!['GET','HEAD'].includes(method)&&csrfToken) headers.set('x-csrf-token',csrfToken);
+  if((!['GET','HEAD'].includes(method)||path==='/api/auth/me')&&csrfToken) headers.set('x-csrf-token',csrfToken);
   const response=await fetch(`${API_ROOT}${path}`,{...options,headers});
   if(response.status===204)return undefined as T;
   const contentType=response.headers.get('content-type')??'';
@@ -52,7 +55,16 @@ async function persistOutcome(result:MobileAuthOutcome):Promise<MobileAuthOutcom
 
 export const api={
   root:API_ROOT,
-  async me(){const result=await request<{principal:Principal|null;csrfToken:string}>('/api/auth/me'); if(result.csrfToken) await setCsrf(result.csrfToken); return result;},
+  me(){
+    if(!currentSessionRequest)currentSessionRequest=(async()=>{
+      try{
+        const result=await request<CurrentSession>('/api/auth/me');
+        if(result.csrfToken)await setCsrf(result.csrfToken);
+        return result;
+      }finally{currentSessionRequest=null;}
+    })();
+    return currentSessionRequest;
+  },
   async login(cpf:string,pin:string){return persistOutcome(await request<MobileAuthOutcome>('/api/auth/login',{method:'POST',body:json({identifier:cpf,password:pin,client:'MOBILE'})}));},
   async firstAccess(cpf:string,birthDate:string,pin:string){return persistOutcome(await request<MobileAuthOutcome>('/api/auth/employee-first-access',{method:'POST',body:json({cpf,birthDate,pin,client:'MOBILE'})}));},
   async selectCompany(selectionToken:string,companyId:number){return persistOutcome(await request<MobileSession>('/api/auth/select-company',{method:'POST',body:json({selectionToken,companyId})}));},
@@ -69,7 +81,7 @@ export const api={
   myProfile:()=>request<any>('/api/employees/me/profile'),
   myPayrolls:()=>request<any>('/api/payrolls/employee/me'),
   myPayroll:(id:number)=>request<any>(`/api/payrolls/employee/${id}`),
-  signPayroll:(id:number,body:any)=>request<any>(`/api/payrolls/employee/${id}/sign`,{method:'POST',body:json(body)}),
+  signPayroll(id:number,body:any){const active=signatureRequests.get(id);if(active)return active;const pending=request<any>(`/api/payrolls/employee/${id}/sign`,{method:'POST',body:json(body)});signatureRequests.set(id,pending);void pending.finally(()=>{if(signatureRequests.get(id)===pending)signatureRequests.delete(id);}).catch(()=>undefined);return pending;},
   notifications:()=>request<any>('/api/notifications'),
   markNotificationRead:(id:number)=>request<void>(`/api/notifications/${id}/read`,{method:'POST'}),
   async downloadPayroll(id:number,filename:string){
