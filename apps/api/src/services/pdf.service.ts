@@ -67,15 +67,16 @@ export interface SignatureStatusReportPdfInput{
   companyName:string;
   statusFilter:'SIGNED'|'PENDING'|'BOTH';
   costCenter:string;
+  competence:string;
   generatedAt:Date;
-  rows:Array<{employeeId:number;employeeName:string;cpf:string;birthDate:string|null;costCenter:string;year:number;month:number;payrollTypeLabel:string;status:'SIGNED'|'SIGNATURE_REQUESTED'|'VIEWED';signedAt:string|null}>;
+  rows:Array<{employeeId:number;employeeName:string;cpf:string;birthDate:string|null;costCenter:string;year:number;month:number;payrollTypeLabel:string;status:'SIGNED'|'SIGNATURE_REQUESTED'|'VIEWED';signedAt:string|Date|null}>;
 }
 
 type PdfObject=Buffer;
 interface PdfImageResource{name:string;data:Buffer;width:number;height:number;}
-interface PdfPageDefinition{commands:string[];images?:PdfImageResource[];}
+interface PdfPageDefinition{commands:string[];images?:PdfImageResource[];mediaBox?:[number,number];}
 function text(x:number,y:number,value:string,size=7,bold=false):string{return `BT /${bold?'F2':'F1'} ${size} Tf 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(latin(value))}) Tj ET`;}
-function textFitWidth(x:number,y:number,maxWidth:number,value:string,size=7,bold=false):string{const safe=latin(value);const natural=Math.max(1,safe.length*size*.49);const scale=Math.max(35,Math.min(100,(maxWidth/natural)*100));return `BT /${bold?'F2':'F1'} ${size} Tf ${scale.toFixed(2)} Tz 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(safe)}) Tj ET`;}
+function textFitWidth(x:number,y:number,maxWidth:number,value:string,size=7,bold=false):string{const safe=latin(value);const natural=Math.max(1,safe.length*size*.62);const scale=Math.max(20,Math.min(100,(maxWidth/natural)*100));return `BT /${bold?'F2':'F1'} ${size} Tf ${scale.toFixed(2)} Tz 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(safe)}) Tj ET`;}
 function textRight(x:number,y:number,value:string,size=7,bold=false):string{const width=latin(value).length*size*.49;return text(x-width,y,value,size,bold);} 
 function textCenter(x:number,y:number,w:number,value:string,size=7,bold=false):string{const width=latin(value).length*size*.49;return text(x+(w-width)/2,y,value,size,bold);} 
 function rotatedText(x:number,y:number,value:string,size=6,bold=false):string{return `BT /${bold?'F2':'F1'} ${size} Tf 0 1 -1 0 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${pdfEscape(latin(value))}) Tj ET`;}
@@ -176,7 +177,7 @@ function buildPdfFromPageDefinitions(pages:PdfPageDefinition[]):Buffer{
   const imageResources=new Map<string,PdfImageResource>();
   for(const page of pages){for(const image of page.images??[]){if(!imageIds.has(image.name)){imageResources.set(image.name,image);const stream=Buffer.concat([Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.data.length} >>\nstream\n`,'latin1'),image.data,Buffer.from('\nendstream','latin1')]);imageIds.set(image.name,add(stream));}}}
   const pageIds:number[]=[];
-  for(const page of pages){const stream=Buffer.from(page.commands.join('\n'),'latin1');const streamId=add(Buffer.concat([Buffer.from(`<< /Length ${stream.length} >>\nstream\n`,'latin1'),stream,Buffer.from('\nendstream','latin1')]));const usedImages=(page.images??[]).filter((image,index,self)=>self.findIndex((item)=>item.name===image.name)===index);const xObjects=usedImages.length?` /XObject << ${usedImages.map((image)=>`/${image.name} ${imageIds.get(image.name)} 0 R`).join(' ')} >>`:'';const pageId=add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldId} 0 R >>${xObjects} >> /Contents ${streamId} 0 R >>`);pageIds.push(pageId);} 
+  for(const page of pages){const stream=Buffer.from(page.commands.join('\n'),'latin1');const streamId=add(Buffer.concat([Buffer.from(`<< /Length ${stream.length} >>\nstream\n`,'latin1'),stream,Buffer.from('\nendstream','latin1')]));const usedImages=(page.images??[]).filter((image,index,self)=>self.findIndex((item)=>item.name===image.name)===index);const xObjects=usedImages.length?` /XObject << ${usedImages.map((image)=>`/${image.name} ${imageIds.get(image.name)} 0 R`).join(' ')} >>`:'';const mediaBox=page.mediaBox??[595,842];const pageId=add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${mediaBox[0]} ${mediaBox[1]}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldId} 0 R >>${xObjects} >> /Contents ${streamId} 0 R >>`);pageIds.push(pageId);}
   objects[catalogId-1]=Buffer.from(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`,'latin1');
   objects[pagesId-1]=Buffer.from(`<< /Type /Pages /Kids [${pageIds.map((id)=>`${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`,'latin1');
   const chunks:Buffer[]=[Buffer.from('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n','latin1')];const offsets:number[]=[0];let offset=chunks[0]!.length;
@@ -194,35 +195,35 @@ export function buildPayrollPdf(input:PdfPayrollInput):Buffer{return buildPdfFro
 export function buildTextPdf(allLines:string[]):Buffer{const pages:string[][]=[];for(let i=0;i<allLines.length;i+=48)pages.push(allLines.slice(i,i+48));if(pages.length===0)pages.push(['']);return buildPdfFromPageDefinitions(pages.map((pageLines)=>{const commands=['BT','/F1 10 Tf','46 795 Td'];pageLines.forEach((raw,index)=>{const lineValue=latin(raw);if(index>0)commands.push('0 -15 Td');commands.push(`(${pdfEscape(lineValue)}) Tj`);});commands.push('ET');return{commands};}));}
 
 function fullCpf(value:string):string{const digits=String(value??'').replace(/\D/g,'').padStart(11,'0').slice(-11);return `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`;}
-function dateTimeBr(value:string|null):string{if(!value)return'—';const match=/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(value);return match?`${match[3]}/${match[2]}/${match[1]} ${match[4]}:${match[5]}`:value;}
+function dateTimeRecife(value:string|Date|null|undefined):string{if(!value)return'—';let date:Date;if(value instanceof Date)date=value;else{const raw=String(value).trim();date=/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw)?new Date(`${raw.replace(' ','T')}Z`):new Date(raw);}if(Number.isNaN(date.getTime()))return'—';return new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Recife',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(date).replace(',','');}
 export function buildSignatureStatusReportPdf(input:SignatureStatusReportPdfInput):Buffer{
-  const filterLabel=input.statusFilter==='SIGNED'?'Já assinaram':input.statusFilter==='PENDING'?'Faltam assinar':'Já assinaram e faltam assinar';
+  const filterLabel=input.statusFilter==='SIGNED'?'Assinados':input.statusFilter==='PENDING'?'Falta Assinar':'Assinados/Falta Assinar';
   const sections:Array<{title:string;rows:SignatureStatusReportPdfInput['rows']}>=input.statusFilter==='BOTH'?
-    [{title:'Já assinaram',rows:input.rows.filter((row)=>row.status==='SIGNED')},{title:'Faltam assinar',rows:input.rows.filter((row)=>row.status!=='SIGNED')}]:
+    [{title:'Assinados',rows:input.rows.filter((row)=>row.status==='SIGNED')},{title:'Falta Assinar',rows:input.rows.filter((row)=>row.status!=='SIGNED')}]:
     [{title:filterLabel,rows:input.rows}];
   const pageDefinitions:PdfPageDefinition[]=[];let pageNumber=0;
   const makePage=(sectionTitle:string,rows:SignatureStatusReportPdfInput['rows'],continued:boolean)=>{
-    pageNumber++;const commands:string[]=[];const margin=30;const right=565;
-    commands.push(text(margin,806,'PayHub',15,true),text(margin,786,'Relatório de assinaturas de holerites',12,true));
-    commands.push(text(margin,768,`Empresa: ${input.companyName}`,7.5),text(margin,756,`Situação: ${filterLabel} | Centro de Custo: ${input.costCenter}`,7.5));
-    commands.push(text(margin,744,`Gerado em: ${input.generatedAt.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})}`,7.5),textRight(right,744,`Página ${pageNumber}`,7.5));
-    commands.push(line(margin,735,right,735,.8),text(margin,716,continued?`${sectionTitle} (continuação)`:sectionTitle,10,true));
-    const top=697;commands.push(fillRect(margin,top,535,18,.91));
-    commands.push(text(34,top+6,'Funcionário',6.1,true),text(158,top+6,'CPF',6.1,true),text(229,top+6,'Nascimento',6.1,true),text(283,top+6,'Centro de Custo',6.1,true),text(382,top+6,'Competência / Tipo',6.1,true),text(482,top+6,'Situação / Data',6.1,true));
+    pageNumber++;const commands:string[]=[];const margin=30;const right=812;
+    commands.push(text(margin,560,'PayHub',15,true),text(margin,540,'Relatório de assinaturas de holerites',12,true));
+    commands.push(text(margin,520,`Empresa: ${input.companyName}`,8),text(margin,507,`Situação: ${filterLabel} | Centro de Custo: ${input.costCenter} | Competência: ${input.competence}`,8));
+    commands.push(text(margin,494,`Gerado em: ${dateTimeRecife(input.generatedAt)} (horário de Recife/PE)`,8),textRight(right,494,`Página ${pageNumber}`,8));
+    commands.push(line(margin,484,right,484,.8),text(margin,464,continued?`${sectionTitle} (continuação)`:sectionTitle,10,true));
+    const top=443;commands.push(fillRect(margin,top,782,20,.91));
+    commands.push(text(34,top+7,'Funcionário',6.4,true),text(240,top+7,'CPF',6.4,true),text(326,top+7,'Nascimento',6.4,true),text(397,top+7,'Centro de Custo',6.4,true),text(548,top+7,'Competência / Tipo',6.4,true),text(719,top+7,'Situação / Data',6.4,true));
     let y=top-18;
     for(const row of rows){
       commands.push(line(margin,y+14,right,y+14,.25));
-      commands.push(textFitWidth(34,y+4,92,row.employeeName,5.8),text(158,y+4,fullCpf(row.cpf),5.8),text(229,y+4,fmtDate(row.birthDate),5.8),textFitWidth(283,y+4,93,row.costCenter,5.8));
-      commands.push(textFitWidth(382,y+4,94,`${String(row.month).padStart(2,'0')}/${row.year} · ${row.payrollTypeLabel}`,5.8));
-      commands.push(text(482,y+4,row.status==='SIGNED'?'Assinado':row.status==='VIEWED'?'Visualizado':'Aguardando',5.8,true));
-      if(row.status==='SIGNED')commands.push(text(482,y-5,dateTimeBr(row.signedAt),5.2));
-      y-=21;
+      commands.push(textFitWidth(34,y+4,198,row.employeeName,6.1),text(240,y+4,fullCpf(row.cpf),6.1),text(326,y+4,fmtDate(row.birthDate),6.1),textFitWidth(397,y+4,143,row.costCenter,6.1));
+      commands.push(textFitWidth(548,y+4,163,`${String(row.month).padStart(2,'0')}/${row.year} - ${row.payrollTypeLabel}`,6.1));
+      commands.push(text(719,y+4,row.status==='SIGNED'?'Assinado':row.status==='VIEWED'?'Visualizado':'Aguardando',6.1,true));
+      if(row.status==='SIGNED')commands.push(textFitWidth(719,y-5,89,dateTimeRecife(row.signedAt),5.7));
+      y-=20;
     }
-    if(rows.length===0)commands.push(textCenter(margin,650,535,'Nenhum funcionário encontrado para os filtros informados.',9));
-    commands.push(line(margin,36,right,36,.5),text(margin,23,'Uma linha por funcionário, considerando o holerite corrente mais recente.',6.3));
-    pageDefinitions.push({commands});
+    if(rows.length===0)commands.push(textCenter(margin,385,782,'Nenhum funcionário encontrado para os filtros informados.',9));
+    commands.push(line(margin,34,right,34,.5),text(margin,21,`Uma linha por funcionário na competência ${input.competence}, considerando o holerite corrente mais recente.`,6.5));
+    pageDefinitions.push({commands,mediaBox:[842,595]});
   };
-  for(const section of sections){if(section.rows.length===0){makePage(section.title,[],false);continue;}for(let index=0;index<section.rows.length;index+=29)makePage(section.title,section.rows.slice(index,index+29),index>0);}
+  for(const section of sections){if(section.rows.length===0){makePage(section.title,[],false);continue;}for(let index=0;index<section.rows.length;index+=19)makePage(section.title,section.rows.slice(index,index+19),index>0);}
   if(pageDefinitions.length===0)makePage(filterLabel,[],false);
   return buildPdfFromPageDefinitions(pageDefinitions);
 }

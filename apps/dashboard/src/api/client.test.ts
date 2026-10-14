@@ -13,8 +13,8 @@ describe('ações administrativas de PIN e relatório',()=>{
 
   it('gera a URL do PDF com situação e Centro de Custo escolhidos',async()=>{
     const fetchMock=vi.fn().mockResolvedValue(new Response(new Blob(['pdf']),{status:200,headers:{'content-disposition':'attachment; filename="relatorio.pdf"'}}));vi.stubGlobal('fetch',fetchMock);
-    const file=await api.signatureStatusReport('PENDING',9);
-    expect(fetchMock).toHaveBeenCalledWith('/api/payrolls/report/signatures.pdf?status=PENDING&groupId=9',expect.objectContaining({credentials:'include'}));
+    const file=await api.signatureStatusReport('PENDING',2026,9,9);
+    expect(fetchMock).toHaveBeenCalledWith('/api/payrolls/report/signatures.pdf?status=PENDING&year=2026&month=9&groupId=9',expect.objectContaining({credentials:'include'}));
     expect(file.filename).toBe('relatorio.pdf');
   });
 });
