@@ -114,12 +114,13 @@ export class EmployeeService {
     const e=result.employee;
     const [rows]=await this.pool.execute<RowDataPacket[]>(`SELECT cpf,sage_employee_code sageEmployeeCode FROM employees WHERE id=? AND company_id=? LIMIT 1`,[employeeId,context.companyId]);
     const current=rows[0];if(!current)throw notFound('Funcionário não encontrado.');
-    if(normalizeCpf(String(current.cpf))!==normalizeCpf(e.cpf)||String(current.sageEmployeeCode)!==String(e.sageEmployeeCode))throw conflict('O resultado do Sage não corresponde ao funcionário selecionado.');
+    if(normalizeCpf(String(current.cpf))!==normalizeCpf(e.cpf))throw conflict('O resultado do Sage não corresponde ao funcionário selecionado.');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(e.birthDate))throw badRequest('O Sage não retornou uma data de nascimento válida. Sincronização bloqueada.');
     const patch=sageEmployeePatch(e);
-    await this.pool.execute(`UPDATE employees SET name=?,birth_date=?,admission_date=?,job_title=?,sage_status=?,sage_snapshot_json=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[patch.name,patch.birthDate,patch.admissionDate,patch.jobTitle,patch.sageStatus,patch.snapshotJson,employeeId,context.companyId]);
+    const previousSageEmployeeCode=String(current.sageEmployeeCode);const sageEmployeeCode=String(e.sageEmployeeCode);
+    await this.pool.execute(`UPDATE employees SET sage_employee_code=?,name=?,birth_date=?,admission_date=?,job_title=?,sage_status=?,sage_snapshot_json=?,updated_at=UTC_TIMESTAMP() WHERE id=? AND company_id=?`,[sageEmployeeCode,patch.name,patch.birthDate,patch.admissionDate,patch.jobTitle,patch.sageStatus,patch.snapshotJson,employeeId,context.companyId]);
     const refreshedPayrolls=await this.refreshUnsignedPayrollDocuments(context.companyId,employeeId);
-    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_SAGE_SYNC_APPLIED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,jobTitle:patch.jobTitle,cbo:patch.cbo,sageStatus:patch.sageStatus,refreshedUnsignedPayrolls:refreshedPayrolls}});
+    await this.audit.record({companyId:context.companyId,actorUserId:context.userId,action:'EMPLOYEE_SAGE_SYNC_APPLIED',targetType:'EMPLOYEE',targetId:employeeId,meta,metadata:{jobId,previousSageEmployeeCode,sageEmployeeCode,jobTitle:patch.jobTitle,cbo:patch.cbo,sageStatus:patch.sageStatus,refreshedUnsignedPayrolls:refreshedPayrolls}});
   }
 
   private async refreshUnsignedPayrollDocuments(companyId:number,employeeId:number):Promise<number>{

@@ -117,7 +117,7 @@ public sealed class SageReadOnlyClient
         await using var connection = CreateConnection();
         await connection.OpenAsync(cancellationToken);
 
-        string? employeeCode = null;
+        var matchingEmployeeCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var table in new[] { "Funcionario", "FunDocumento", "FunFuncional" })
         {
             var columns = await GetColumnsAsync(connection, table, cancellationToken);
@@ -139,13 +139,17 @@ public sealed class SageReadOnlyClient
                 predicates.Add($"CONVERT(nvarchar(100), [{EscapeIdentifier(companyColumn)}]) = @company");
                 cmd.Parameters.Add(new SqlParameter("@company", SqlDbType.NVarChar, 100) { Value = companyCode });
             }
-            cmd.CommandText = $"SELECT TOP 1 * FROM [{EscapeIdentifier(table)}] WHERE {string.Join(" AND ", predicates)}";
-            await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow, cancellationToken);
-            if (!await reader.ReadAsync(cancellationToken)) continue;
-            var row = ReadRow(reader);
-            employeeCode = Scalar(row, employeeColumn);
-            if (!string.IsNullOrWhiteSpace(employeeCode)) break;
+            cmd.CommandText = $"SELECT DISTINCT [{EscapeIdentifier(employeeColumn)}] FROM [{EscapeIdentifier(table)}] WHERE {string.Join(" AND ", predicates)}";
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (reader.IsDBNull(0)) continue;
+                var code = Convert.ToString(reader.GetValue(0))?.Trim();
+                if (!string.IsNullOrWhiteSpace(code)) matchingEmployeeCodes.Add(code);
+            }
         }
+
+        var employeeCode = SelectLatestEmployeeCode(matchingEmployeeCodes);
 
         if (string.IsNullOrWhiteSpace(employeeCode)) return null;
 
@@ -650,6 +654,14 @@ ORDER BY CASE WHEN ff.dt_final IS NULL OR ff.dt_final >= CAST(GETDATE() AS date)
         foreach (var alias in aliases) if (set.TryGetValue(alias, out var exact)) return exact;
         return null;
     }
+    private static string? SelectLatestEmployeeCode(IEnumerable<string> codes)
+        => codes.Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(EmployeeCodeRank)
+            .ThenByDescending(code => code, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    private static long EmployeeCodeRank(string code)
+        => long.TryParse(code.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : long.MinValue;
     private static string EscapeIdentifier(string value)=>value.Replace("]","]]",StringComparison.Ordinal);
     private static string NormalizeName(string value)
     {
